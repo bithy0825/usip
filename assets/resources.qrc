@@ -1,0 +1,24 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icon/ellipse.svg</file>
+        <file>icon/rectangle.svg</file>
+        <file>icon/scene_collection.svg</file>
+        <file>icon/polygon.svg</file>
+        <file>icon/measure.svg</file>
+        <file>icon/mask.svg</file>
+        <file>icon/split.svg</file>
+        <file>icon/slider.svg</file>
+        <file>icon/highlight.svg</file>
+        <file>icon/difference.svg</file>
+        <file>icon/apply.svg</file>
+        <file>icon/cancel.svg</file>
+        <file>icon/clear_constituency.svg</file>
+        <file>icon/clear_measurement.svg</file>
+        <file>icon/pseudocolor.svg</file>
+        <file>icon/histogram.svg</file>
+        <file>icon/statistics.svg</file>
+        <file>icon/open.svg</file>
+        <file>icon/save.svg</file>
+        <file>icon/about.svg</file>
+    </qresource>
+</RCC>

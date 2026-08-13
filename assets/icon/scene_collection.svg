@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 24 24"
+   version="1.1"
+   id="svg3"
+   sodipodi:docname="scene-collection.svg"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs3" />
+  <sodipodi:namedview
+     id="namedview3"
+     pagecolor="#ffffff"
+     bordercolor="#111111"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="1"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="true"
+     inkscape:zoom="28.963094"
+     inkscape:cx="10.306219"
+     inkscape:cy="14.27679"
+     inkscape:window-width="1851"
+     inkscape:window-height="1338"
+     inkscape:window-x="145"
+     inkscape:window-y="111"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg3">
+    <inkscape:grid
+       id="grid3"
+       units="px"
+       originx="12"
+       originy="12"
+       spacingx="1"
+       spacingy="1"
+       empcolor="#0099e5"
+       empopacity="1"
+       color="#0099e5"
+       opacity="1"
+       empspacing="5"
+       enabled="true"
+       visible="true" />
+  </sodipodi:namedview>
+  <rect
+     style="fill:#e5e5e5;fill-opacity:1;fill-rule:evenodd;stroke:#4d4d4d;stroke-width:1.1547;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-dashoffset:3.2"
+     id="rect1"
+     width="18"
+     height="4"
+     x="3"
+     y="3" />
+  <rect
+     style="fill:#e5e5e5;fill-opacity:1;fill-rule:evenodd;stroke:#4d4d4d;stroke-width:0.966092;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-dashoffset:3.2"
+     id="rect4"
+     width="16"
+     height="14"
+     x="4"
+     y="7" />
+  <path
+     style="fill:none;fill-rule:evenodd;stroke:#4d4d4d;stroke-width:2;stroke-linecap:round;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+     d="M 7,11 H 17"
+     id="path5"
+     inkscape:connector-type="polyline"
+     inkscape:connector-curvature="0" />
+</svg>

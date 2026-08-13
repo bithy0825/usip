@@ -1,0 +1,42 @@
+# ==============================================================================
+# core — 基础库:日志 / 配置 / 文档 / 运行时 / 工具(静态库)
+#
+# 说明:
+#   * 内部库一律静态,最终单 exe + 第三方 DLL,部署最干净
+# ==============================================================================
+add_library(usip_core STATIC)
+add_library(usip::core ALIAS usip_core)
+
+target_sources(usip_core
+    PRIVATE
+        src/config.cpp
+    PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS inc
+        FILES
+            inc/settings.hpp
+            inc/config.hpp
+            inc/event.hpp
+)
+
+target_include_directories(usip_core
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>
+        $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(usip_core
+    PUBLIC
+        usip::options
+        usip::common
+        3rdparty::spdlog
+        3rdparty::tiff
+        3rdparty::tomlpp
+        3rdparty::tbb
+        3rdparty::cbuspp
+)
+
+# PCH 组合:标准库 + 通用第三方(不引入 Qt,保持依赖卫生)
+usip_apply_pch(usip_core)
+
+set_target_properties(usip_core PROPERTIES FOLDER "usip/libs")

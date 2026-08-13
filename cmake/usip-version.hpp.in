@@ -1,0 +1,20 @@
+// =============================================================================
+// usip/version.hpp — 由 usip-version.cmake 经 configure_file 自动生成,请勿手动修改
+// =============================================================================
+#pragma once
+
+#define USIP_VERSION_MAJOR @USIP_VERSION_MAJOR@
+#define USIP_VERSION_MINOR @USIP_VERSION_MINOR@
+#define USIP_VERSION_PATCH @USIP_VERSION_PATCH@
+#define USIP_VERSION_STRING "@USIP_VERSION@"
+#define USIP_GIT_HASH "@USIP_GIT_HASH@"
+
+namespace usip {
+
+inline constexpr int kVersionMajor = USIP_VERSION_MAJOR;
+inline constexpr int kVersionMinor = USIP_VERSION_MINOR;
+inline constexpr int kVersionPatch = USIP_VERSION_PATCH;
+inline constexpr const char* kVersion = USIP_VERSION_STRING;
+inline constexpr const char* kGitHash = USIP_GIT_HASH;
+
+} // namespace usip

@@ -1,0 +1,42 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 26,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "ninja",
+            "displayName": "Ninja Multi-Config + MSVC",
+            "description": "Ninja 构建 + MSVC 编译。在 VS IDE 中打开本目录(VS 会自动注入 MSVC 环境),或在 'x64 Native Tools Command Prompt' / 执行过 vcvars64.bat 的终端中使用",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "generator": "Ninja Multi-Config",
+            "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+            "environment": {
+                "VCPKG_ROOT": "D:/BuildTools/vcpkg"
+            },
+            "cacheVariables": {
+                "VCPKG_TARGET_TRIPLET": "x64-windows",
+                "CMAKE_CXX_COMPILER": "cl"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "ninja-debug",
+            "configurePreset": "ninja",
+            "configuration": "Debug"
+        },
+        {
+            "name": "ninja-release",
+            "configurePreset": "ninja",
+            "configuration": "Release"
+        }
+    ]
+}
