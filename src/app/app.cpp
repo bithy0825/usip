@@ -2,6 +2,7 @@
 
 #include <QApplication>
 
+#include "executor.hpp"
 #include "platform/system.hpp"
 
 namespace usip::app {
@@ -9,6 +10,11 @@ namespace usip::app {
 application::~application()
 {
     ui_.reset(); // UI 先销毁:可能取消 bus 订阅、可能写日志
+
+    if (service_) {
+        service_->stop();
+        service_.reset();
+    }
 
     if (bus_)
         bus_.reset(); // 先于 executor:bus 持有其引用
@@ -85,11 +91,19 @@ auto application::init(int& argc, char** argv) -> result<>
         !r)
         return std::unexpected(std::move(r).error());
 
-    // ── 6. 主窗口 ─────────────────────────────────────────────────────────
+    if (auto r = common::capture([&] {
+            service_ = std::make_unique<service::service>(*executor_, *bus_);
+        });
+        !r)
+        return std::unexpected(std::move(r).error());
+
     if (auto r = common::capture([&] {
             ui_ = std::make_unique<ui::main_window>(*bus_);
         });
         !r)
+        return std::unexpected(std::move(r).error());
+
+    if (auto r = service_->start(); !r)
         return std::unexpected(std::move(r).error());
 
     common::log_info("usip started (config: {}, executor workers: {})",

@@ -16,6 +16,7 @@ menu_bar::menu_bar(cbuspp::bus<common::executor>& bus, QWidget* parent)
 {
     setup_ui();
     setup_subscriptions();
+    setup_connections();
 }
 
 menu_bar::~menu_bar() = default;

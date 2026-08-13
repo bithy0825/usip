@@ -18,7 +18,7 @@ target_link_libraries(usip
         usip::platform
         usip::ui            
         # usip::rendering     # 待添加
-        # usip::service       # 待添加
+        usip::service
         3rdparty::qt6
         3rdparty::cbuspp
 )

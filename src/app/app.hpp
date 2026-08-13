@@ -10,6 +10,7 @@
 #include "executor.hpp" // usip::common::executor
 #include "logger.hpp" // usip::common::logger
 #include "main_window.hpp"
+#include "service.hpp"
 
 class QApplication; // 前置:qt_app_ 以 unique_ptr 持有,完整析构定义在 .cpp
 
@@ -33,6 +34,7 @@ private:
     std::optional<common::logger> logger_ { }; // logger 可移动,optional 持有
     std::unique_ptr<common::executor> executor_ { nullptr };
     std::unique_ptr<cbuspp::bus<common::executor>> bus_ { nullptr }; // 持有 executor 引用,须先销毁
+    std::unique_ptr<service::service> service_ { nullptr }; // 持有 bus 引用,须先于 bus 销毁
     std::unique_ptr<ui::main_window> ui_ { nullptr };
 };
 
