@@ -55,7 +55,7 @@ void options_tool_bar::setup_ui()
     addAction(view_difference_);
 
     // ── 页帧控制 ───────────────────────────────────────────────────────
-    auto* page_label = new QLabel(tr("Page"), this);
+    auto* page_label = new QLabel(tr("Compared Page"), this);
     addWidget(page_label);
 
     page_control_ = new QSpinBox(this);
