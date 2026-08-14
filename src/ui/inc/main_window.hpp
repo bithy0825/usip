@@ -7,6 +7,9 @@
 namespace usip::ui {
 
 class menu_bar;
+class top_tool_bar;
+class options_tool_bar;
+class side_tool_bar;
 
 class main_window : public ui_protocol<main_window, QMainWindow> {
     Q_OBJECT
@@ -24,6 +27,9 @@ private:
 
 private:
     menu_bar* menu_bar_ { nullptr };
+    top_tool_bar* top_tool_bar_ { nullptr };
+    options_tool_bar* options_tool_bar_ { nullptr };
+    side_tool_bar* side_tool_bar_ { nullptr };
 };
 
 }

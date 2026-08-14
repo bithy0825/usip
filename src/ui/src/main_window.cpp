@@ -1,5 +1,10 @@
 #include "main_window.hpp"
+#include "icon_registry.hpp"
+#include "logger.hpp"
 #include "menu_bar.hpp"
+#include "options_tool_bar.hpp"
+#include "side_tool_bar.hpp"
+#include "top_tool_bar.hpp"
 
 namespace usip::ui {
 
@@ -16,8 +21,23 @@ main_window::~main_window() = default;
 
 void main_window::setup_ui()
 {
+    if (auto r = icon_registry::instance().scan(); !r) {
+        common::log_warn("icon scan failed: {}", r.error());
+    }
+
     menu_bar_ = new menu_bar(bus_, this);
     setMenuBar(menu_bar_);
+
+    top_tool_bar_ = new top_tool_bar(*menu_bar_, bus_, this);
+    addToolBar(top_tool_bar_);
+
+    addToolBarBreak(Qt::TopToolBarArea);
+
+    options_tool_bar_ = new options_tool_bar(*menu_bar_, bus_, this);
+    addToolBar(options_tool_bar_);
+
+    side_tool_bar_ = new side_tool_bar(bus_, this);
+    addToolBar(Qt::LeftToolBarArea, side_tool_bar_);
 }
 
 void main_window::setup_subscriptions() { }

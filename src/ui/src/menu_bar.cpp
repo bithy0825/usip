@@ -53,7 +53,7 @@ void menu_bar::setup_ui()
     mask_->setChecked(true);
     view_menu->addSeparator();
     clear_constituency_ = view_menu->addAction(reg.icon("clear_constituency").value_or(QIcon { }), tr("Clear &Constituency"));
-    clear_measurements_ = view_menu->addAction(reg.icon("clear_measurements").value_or(QIcon { }), tr("Clear &Measurements"));
+    clear_measurements_ = view_menu->addAction(reg.icon("clear_measurement").value_or(QIcon { }), tr("Clear &Measurements"));
 
     auto help_menu = addMenu(tr("&Help"));
     about_ = help_menu->addAction(reg.icon("about").value_or(QIcon { }), tr("&About"));

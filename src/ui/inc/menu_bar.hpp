@@ -23,6 +23,15 @@ public:
     menu_bar(menu_bar&&) = delete;
     menu_bar& operator=(menu_bar&&) = delete;
 
+    // ── Action 导出(工具栏共享,禁止重复创建) ──────────────────────────
+    [[nodiscard]] QAction* open_action() const noexcept { return open_; }
+    [[nodiscard]] QAction* save_action() const noexcept { return save_; }
+    [[nodiscard]] QAction* pseudocolor_action() const noexcept { return pseudocolor_; }
+    [[nodiscard]] QAction* mask_action() const noexcept { return mask_; }
+    [[nodiscard]] QAction* about_action() const noexcept { return about_; }
+    [[nodiscard]] QAction* clear_constituency_action() const noexcept { return clear_constituency_; }
+    [[nodiscard]] QAction* clear_measurements_action() const noexcept { return clear_measurements_; }
+
 private:
     void setup_ui();
     void setup_subscriptions();

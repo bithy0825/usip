@@ -6,6 +6,9 @@ target_sources(usip_ui
         src/main_window.cpp
         src/icon_registry.cpp
         src/menu_bar.cpp
+        src/top_tool_bar.cpp
+        src/options_tool_bar.cpp
+        src/side_tool_bar.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS inc
@@ -14,6 +17,9 @@ target_sources(usip_ui
             inc/ui_protocol.hpp
             inc/icon_registry.hpp
             inc/menu_bar.hpp
+            inc/top_tool_bar.hpp
+            inc/options_tool_bar.hpp
+            inc/side_tool_bar.hpp
 )
 
 # 自动收集 icon 目录下的 SVG,编译进 Qt 资源(:/icon/<name>.svg)
