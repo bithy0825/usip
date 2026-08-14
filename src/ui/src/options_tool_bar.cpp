@@ -1,16 +1,48 @@
 #include "options_tool_bar.hpp"
+#include "QRangeSlider.hpp"
+#include "config.hpp"
+#include "event.hpp"
+#include "icon_registry.hpp"
 #include "menu_bar.hpp"
-#include <icon_registry.hpp>
 
 #include <QAbstractSpinBox>
 #include <QAction>
 #include <QActionGroup>
+#include <QBoxLayout>
+#include <QColorDialog>
+#include <QFrame>
 #include <QLabel>
+#include <QPainter>
+#include <QPixmap>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStackedWidget>
+#include <QToolButton>
 #include <QWidget>
+#include <qkeysequence.h>
+#include <qnamespace.h>
 
 namespace usip::ui {
+
+namespace {
+
+    // 16×16 色块(4px 圆角),作为蒙版颜色按钮的图标;dpr 保证高分屏下边缘清晰
+    QPixmap make_mask_swatch(const QColor& color, qreal dpr)
+    {
+        QPixmap pm(qRound(12 * dpr), qRound(12 * dpr));
+        pm.setDevicePixelRatio(dpr);
+        pm.fill(Qt::transparent);
+
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        p.drawRoundedRect(QRectF(0, 0, 12, 12), 2, 2);
+
+        return pm;
+    }
+
+} // namespace
 
 options_tool_bar::options_tool_bar(menu_bar& menu, cbuspp::bus<common::executor>& bus, QWidget* parent)
     : ui_protocol<options_tool_bar, QToolBar>(bus, parent)
@@ -29,7 +61,6 @@ void options_tool_bar::setup_ui()
 
     auto& reg = icon_registry::instance();
 
-    // ── 对比视图模式(互斥 radio group,None = 单图视图) ────────────────
     view_group_ = new QActionGroup(this);
     view_group_->setExclusive(true);
 
@@ -54,7 +85,6 @@ void options_tool_bar::setup_ui()
     view_difference_->setCheckable(true);
     addAction(view_difference_);
 
-    // ── 页帧控制 ───────────────────────────────────────────────────────
     auto* page_label = new QLabel(tr("Compared Page"), this);
     addWidget(page_label);
 
@@ -66,24 +96,131 @@ void options_tool_bar::setup_ui()
 
     addSeparator();
 
-    // ── 上下文选项面板(根据当前工具显示不同参数) ───────────────────────
     options_stack_ = new QStackedWidget(this);
     addWidget(options_stack_);
 
-    // ── 弹簧 ───────────────────────────────────────────────────────────
     auto* spring = new QWidget(this);
     spring->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     addWidget(spring);
 
     addSeparator();
 
-    // ── 清除操作(共享 menu_bar 的 action) ──────────────────────────────
     addAction(menu_bar_.clear_constituency_action());
     addAction(menu_bar_.clear_measurements_action());
+
+    apply_ = new QAction(reg.icon("apply").value_or(QIcon { }), tr("&Apply"), this);
+    apply_->setShortcut(QKeySequence(Qt::Key_Enter));
+
+    cancel_ = new QAction(reg.icon("cancel").value_or(QIcon { }), tr("&Cancel"), this);
+    cancel_->setShortcut(QKeySequence(Qt::Key_Escape));
+
+    empty_ = new QWidget(this);
+    mask_options_ = new mask_options(*this, bus_, this);
+    options_stack_->addWidget(empty_);
+    options_stack_->addWidget(mask_options_);
 }
 
-void options_tool_bar::setup_subscriptions() { }
+void options_tool_bar::setup_subscriptions()
+{
+    bus_.on<core::event::threshold_segment_requested>().call(this, &options_tool_bar::on_threshold_segment_requested);
+}
 
 void options_tool_bar::setup_connections() { }
+
+void options_tool_bar::on_threshold_segment_requested()
+{
+    options_stack_->setCurrentWidget(mask_options_);
+}
+
+// ---------------------------------------------------------------------------
+// mask_options
+// ---------------------------------------------------------------------------
+
+mask_options::mask_options(options_tool_bar& opt_tool_bar, cbuspp::bus<common::executor>& bus, QWidget* parent)
+    : ui_protocol(bus, parent)
+    , opt_tool_bar_(opt_tool_bar)
+{
+    setup_ui();
+    setup_subscriptions();
+    setup_connections();
+}
+
+mask_options::~mask_options() = default;
+
+void mask_options::setup_ui()
+{
+    setMovable(false);
+
+    auto* range_label = new QLabel(tr("Range"), this);
+    floor_ = new QSpinBox(this);
+    floor_->setRange(0, 255);
+
+    threshold_ = new QRangeSlider(Qt::Horizontal, this);
+    threshold_->setRange(0, 255);
+    threshold_->setValues(0, 255);
+    threshold_->setMinimumWidth(240);
+
+    ceil_ = new QSpinBox(this);
+    ceil_->setRange(0, 255);
+    ceil_->setValue(255);
+
+    // UI 不持有状态:初始值直接读 config
+    auto* color_label = new QLabel(tr("Mask Color"), this);
+    const QColor color(QString::fromStdString(core::config::global()->get<std::string>("mask.color")));
+    color_ = new QToolButton(this);
+    color_->setIcon(make_mask_swatch(color.isValid() ? color : QColor(Qt::red), devicePixelRatioF()));
+    color_->setToolTip(tr("Mask color"));
+
+    auto* opacity_label = new QLabel(tr("Opacity"), this);
+    // config 存 0.0~1.0,滑块为 0~100
+    const int opacity = qRound(core::config::global()->get<float>("mask.opacity") * 100.0F);
+    opacity_ = new QSlider(Qt::Horizontal, this);
+    opacity_->setRange(0, 100);
+    opacity_->setValue(opacity);
+    opacity_->setFixedWidth(120);
+    opacity_->setToolTip(tr("Mask opacity"));
+
+    // 颜色/不透明度组
+    addWidget(color_label);
+    addWidget(color_);
+    addWidget(opacity_label);
+    addWidget(opacity_);
+
+    addSeparator();
+
+    // 范围组:label, floor, slider, ceil
+    addWidget(range_label);
+    addWidget(floor_);
+    addWidget(threshold_);
+    addWidget(ceil_);
+
+    // 分割线 + 父级共享的 apply/cancel(事件由 options_tool_bar 管理)
+    addSeparator();
+    addAction(opt_tool_bar_.apply_action());
+    addAction(opt_tool_bar_.cancel_action());
+}
+
+void mask_options::setup_subscriptions() { }
+
+void mask_options::setup_connections()
+{
+    connect(threshold_, &QRangeSlider::lowerValueChanged, floor_, &QSpinBox::setValue);
+    connect(threshold_, &QRangeSlider::upperValueChanged, ceil_, &QSpinBox::setValue);
+    connect(floor_, &QSpinBox::valueChanged, threshold_, &QRangeSlider::setLowerValue);
+    connect(ceil_, &QSpinBox::valueChanged, threshold_, &QRangeSlider::setUpperValue);
+
+    connect(color_, &QToolButton::clicked, this, [this] {
+        const QColor initial(QString::fromStdString(core::config::global()->get<std::string>("mask.color")));
+        const QColor picked = QColorDialog::getColor(initial, this, tr("Mask Color"));
+        if (!picked.isValid())
+            return;
+        [[maybe_unused]] auto res = core::config::global()->set<std::string>("mask.color", picked.name().toStdString());
+        color_->setIcon(make_mask_swatch(picked, devicePixelRatioF()));
+    });
+
+    connect(opacity_, &QSlider::valueChanged, this, [](int value) {
+        [[maybe_unused]] auto res = core::config::global()->set<float>("mask.opacity", value / 100.0F);
+    });
+}
 
 } // namespace usip::ui

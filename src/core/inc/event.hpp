@@ -18,6 +18,8 @@ namespace event {
     CBUSPP_EVENT(file_open_requested, "file_open_requested", void);
     CBUSPP_EVENT(file_selected, "file.selected", std::filesystem::path);
 
+    CBUSPP_EVENT(threshold_segment_requested, "threshold_segment_requested", void);
+
     CBUSPP_EVENT(error_occurred, "error.occurred", common::error&);
 }
 

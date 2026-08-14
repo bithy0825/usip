@@ -29,7 +29,7 @@ private:
     QAction* ellipse_ { nullptr };
     QAction* polygon_ { nullptr };
 
-    QAction* mask_ { nullptr };
+    QAction* threshold_seg_ { nullptr };
     QAction* measure_ { nullptr };
 };
 

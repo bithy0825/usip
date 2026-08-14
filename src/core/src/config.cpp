@@ -277,11 +277,14 @@ void register_builtin_settings(settings_registry& reg)
         .restart_required();
 
     // ── 文件(立即生效)────────────────────────────────────────────
-    reg.add<std::vector<std::string>>("file.recent_files", {},
+    reg.add<std::vector<std::string>>("file.recent_files", { },
         "recently opened file paths (UTF-8)");
     reg.add<int>("file.max_recent_files", 10,
            "maximum number of recent file entries to keep")
         .range(1, 100);
+
+    reg.add<std::string>("mask.color", "#FF0000", "mask color");
+    reg.add<float>("mask.opacity", 0.5, "mask opacity");
 }
 
 } // namespace usip::core

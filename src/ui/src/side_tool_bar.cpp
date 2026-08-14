@@ -1,5 +1,6 @@
 #include "side_tool_bar.hpp"
-#include <icon_registry.hpp>
+#include "event.hpp"
+#include "icon_registry.hpp"
 
 #include <QAction>
 #include <qkeysequence.h>
@@ -24,32 +25,37 @@ void side_tool_bar::setup_ui()
     auto& reg = icon_registry::instance();
 
     // ── 绘制工具 ─────────────────────────────────────────────────────
-    rectangle_ = addAction(reg.icon("rectangle").value_or(QIcon {}), tr("&Rectangle"));
+    rectangle_ = addAction(reg.icon("rectangle").value_or(QIcon { }), tr("&Rectangle"));
     rectangle_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_R));
     rectangle_->setCheckable(true);
 
-    ellipse_ = addAction(reg.icon("ellipse").value_or(QIcon {}), tr("&Ellipse"));
+    ellipse_ = addAction(reg.icon("ellipse").value_or(QIcon { }), tr("&Ellipse"));
     ellipse_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_E));
     ellipse_->setCheckable(true);
 
-    polygon_ = addAction(reg.icon("polygon").value_or(QIcon {}), tr("&Polygon"));
+    polygon_ = addAction(reg.icon("polygon").value_or(QIcon { }), tr("&Polygon"));
     polygon_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_P));
     polygon_->setCheckable(true);
 
     addSeparator();
 
     // ── 叠加工具 ─────────────────────────────────────────────────────
-    mask_ = addAction(reg.icon("mask").value_or(QIcon {}), tr("&Mask"));
-    mask_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_M));
-    mask_->setCheckable(true);
+    threshold_seg_ = addAction(reg.icon("threshold_segmentation").value_or(QIcon { }), tr("&Threshold Segmentation"));
+    threshold_seg_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_M));
+    threshold_seg_->setCheckable(true);
 
-    measure_ = addAction(reg.icon("measure").value_or(QIcon {}), tr("M&easure"));
+    measure_ = addAction(reg.icon("measure").value_or(QIcon { }), tr("M&easure"));
     measure_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_D));
     measure_->setCheckable(true);
 }
 
 void side_tool_bar::setup_subscriptions() { }
 
-void side_tool_bar::setup_connections() { }
+void side_tool_bar::setup_connections()
+{
+    connect(threshold_seg_, &QAction::triggered, this, [this] {
+        bus_.post<core::event::threshold_segment_requested>().sync();
+    });
+}
 
 } // namespace usip::ui

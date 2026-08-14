@@ -20,5 +20,6 @@
         <file>icon/open.svg</file>
         <file>icon/save.svg</file>
         <file>icon/about.svg</file>
+        <file>icon/threshold_segmentation.svg</file>
     </qresource>
 </RCC>
