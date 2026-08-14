@@ -324,14 +324,14 @@ void QRangeSlider::paintEvent([[maybe_unused]] QPaintEvent* event)
     const bool horizontal = (m_orientation == Qt::Horizontal);
     const QRect beforeSelected = horizontal
         ? QRect(QPoint(groove.left(), groove.top()),
-            QPoint(selected.left(), groove.bottom()))
+              QPoint(selected.left(), groove.bottom()))
         : QRect(QPoint(groove.left(), selected.bottom()),
-            QPoint(groove.right(), groove.bottom()));
+              QPoint(groove.right(), groove.bottom()));
     const QRect afterSelected = horizontal
         ? QRect(QPoint(selected.right(), groove.top()),
-            QPoint(groove.right(), groove.bottom()))
+              QPoint(groove.right(), groove.bottom()))
         : QRect(QPoint(groove.left(), groove.top()),
-            QPoint(groove.right(), selected.top()));
+              QPoint(groove.right(), selected.top()));
 
     const auto paintTrack = [&](const QRect& region, bool flippedUpsideDown) {
         if (!region.isValid() || region.isEmpty())
