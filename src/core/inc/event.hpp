@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include "document.hpp"
 #include "error.hpp"
 #include "tiff.hpp"
 
@@ -22,7 +23,8 @@ namespace event {
     CBUSPP_EVENT(file_open_requested, "file_open_requested", void);
     CBUSPP_EVENT(file_selected, "file.selected", std::filesystem::path);
 
-    CBUSPP_EVENT(document_loaded, "document.loaded", std::shared_ptr<common::loaded_tiff>);
+    CBUSPP_EVENT(document_ready, "document.ready", std::shared_ptr<document>);
+    CBUSPP_EVENT(document_switch, "document.switch", std::shared_ptr<document>);
 
     CBUSPP_EVENT(threshold_segment_requested, "threshold_segment_requested", void);
 

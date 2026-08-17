@@ -147,7 +147,9 @@ struct page_info {
 [[nodiscard]] auto contains_ci(std::string_view haystack, std::string_view needle) -> bool;
 
 struct tiff_info {
-    const cuuidpp::uuid id { cuuidpp::generate_uuid() }; // 文档级 uuid
+    // 注:id 刻意不加 const —— const 成员会删除赋值运算符,
+    // unordered_map<uuid, document> 的值语义替换将不可用(与 page_info 同理)
+    cuuidpp::uuid id { cuuidpp::generate_uuid() }; // 文档级 uuid
     std::filesystem::path path { };
     bool big_tiff { false };
     bool has_sub_ifds { false }; // 任一页携带 SubIFD 标签(策略过滤用;读取不深入)

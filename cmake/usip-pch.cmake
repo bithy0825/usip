@@ -80,10 +80,18 @@ function(usip_pch_finalize)
 
     # 所有消费目标都会被 /FI 强制包含聚合头 → 必须能解析 Qt 的 include 路径;
     # 统一在此附加(PRIVATE 接口链接对静态库仅是使用需求,不发生实际链接)
+    #
+    # toml++/highway 同理,且不只是 include 路径:PCH 片段直接包含它们的头,
+    # 其接口宏(TOML_HEADER_ONLY/TOML_SHARED_LIB、HWY_SHARED_DEFINE/TOOLCHAIN_MISS_*)
+    # 会进入 PCH 宏状态;任一消费目标缺这些 /D,MSVC 即报 C4005/C4651
+    # (PCH 与消费方宏状态不一致在 dllimport 声明层面还有 ODR 风险)
+    # → 全消费目标统一链接,与 PCH 宏状态对齐
     foreach(_t IN LISTS _targets)
-        if(TARGET 3rdparty_qt6)
-            target_link_libraries(${_t} PRIVATE 3rdparty::qt6)
-        endif()
+        foreach(_dep IN ITEMS qt6 tomlpp highway)
+            if(TARGET 3rdparty_${_dep})
+                target_link_libraries(${_t} PRIVATE 3rdparty::${_dep})
+            endif()
+        endforeach()
     endforeach()
 
     target_precompile_headers(${_owner} PRIVATE ${_headers})

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 
+#include "document.hpp"
 #include "executor.hpp"
 
 namespace usip::common {
@@ -31,6 +32,9 @@ private:
 
     cbuspp::bus<common::executor>& bus_;
     common::executor& executor_;
+
+    std::unordered_map<cuuidpp::uuid, core::document> docs_ { };
+    std::unordered_map<cuuidpp::uuid, core::page> pages_ { };
 };
 
 }

@@ -17,6 +17,7 @@ target_sources(usip_core
             inc/settings.hpp
             inc/config.hpp
             inc/event.hpp
+            inc/document.hpp
 )
 
 target_include_directories(usip_core
@@ -34,9 +35,11 @@ target_link_libraries(usip_core
         3rdparty::tomlpp
         3rdparty::tbb
         3rdparty::cbuspp
+        3rdparty::qt6 # document.hpp 的 QImage/QPointF(通信基准需要)
+        3rdparty::clipper2 # roi 的矢量路径
 )
 
-# PCH 组合:标准库 + 通用第三方(不引入 Qt,保持依赖卫生)
+# PCH 组合:标准库 + 通用第三方(clipper2/Qt 仅个别头文件使用,不入 PCH)
 usip_apply_pch(usip_core)
 
 set_target_properties(usip_core PROPERTIES FOLDER "usip/libs")
