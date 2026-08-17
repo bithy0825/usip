@@ -4,12 +4,14 @@ add_library(usip::service ALIAS usip_service)
 target_sources(usip_service
     PRIVATE
         src/service.cpp
+        src/document_service.cpp
         src/file_service.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS inc
         FILES
             inc/service.hpp
+            inc/document_service.hpp
             inc/file_service.hpp
 )
 
@@ -26,6 +28,8 @@ target_link_libraries(usip_service
         usip::core
         usip::platform
         3rdparty::qt6
+    PRIVATE
+        usip::io # 仅 document_service.cpp 调用 load_tiff,不外泄到本层头文件
 )
 
 # PCH 组合:标准库 + 通用第三方(不引入 Qt,保持依赖卫生)

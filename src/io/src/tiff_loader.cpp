@@ -150,28 +150,37 @@ namespace {
         return v;
     }
 
-    // 采样首页前若干像素,判定 RGB 三通道是否逐像素一致(casic 特征)
-    [[nodiscard]] auto rgb_channels_identical(TIFF* tif, const common::page_info& page) -> bool
+    // 采样一页像素(匿名文件的特征采集):R==G==B 逐像素一致;4 通道页附加通道恒 255
+    struct page_sample {
+        bool sampled = false; // 成功解码至少一条 strip(失败不计数,不否决)
+        bool identical = false; // R==G==B
+        bool alpha_255 = false; // 第 4 通道恒 255(仅 4 通道页有意义)
+    };
+
+    [[nodiscard]] auto sample_rgb_page(TIFF* tif, const common::page_info& page) -> page_sample
     {
         if (page.klass != common::pixel_class::rgb && page.klass != common::pixel_class::rgba)
-            return false;
+            return { };
         if (page.format != common::sample_format::uint8)
-            return false; // 目前只见过 8 位;其他位深保守判否
+            return { }; // 目前只见过 8 位;其他位深保守判否
 
         const auto strip_size = TIFFStripSize(tif);
         if (strip_size <= 0)
-            return false;
+            return { };
         std::vector<std::uint8_t> strip(static_cast<std::size_t>(strip_size));
         if (TIFFReadEncodedStrip(tif, 0, strip.data(), strip_size) <= 0)
-            return false;
+            return { };
+
+        page_sample out { .sampled = true, .identical = true, .alpha_255 = true };
 
         const auto channels = page.channels;
         const auto* data = strip.data();
         const std::size_t pixel_count = static_cast<std::size_t>(strip_size) / channels;
 
-        // SIMD 主循环:解交织后比较 R==G 且 R==B
+        // SIMD 主循环:解交织后比较 R==G 且 R==B;4 通道页同时校验附加通道
         const hn::ScalableTag<std::uint8_t> d;
         const std::size_t n = hn::Lanes(d);
+        const auto white = hn::Set(d, std::uint8_t { 255 });
 
         std::size_t i = 0;
         if (channels == 3) {
@@ -180,7 +189,7 @@ namespace {
                 hn::LoadInterleaved3(d, data + i * 3, c0, c1, c2);
                 const auto diff = hn::Or(hn::Xor(c0, c1), hn::Xor(c0, c2));
                 if (!hn::AllTrue(d, hn::Eq(diff, hn::Zero(d))))
-                    return false;
+                    out.identical = false;
             }
         } else {
             for (; i + n <= pixel_count; i += n) {
@@ -188,23 +197,35 @@ namespace {
                 hn::LoadInterleaved4(d, data + i * 4, c0, c1, c2, c3);
                 const auto diff = hn::Or(hn::Xor(c0, c1), hn::Xor(c0, c2));
                 if (!hn::AllTrue(d, hn::Eq(diff, hn::Zero(d))))
-                    return false;
+                    out.identical = false;
+                if (!hn::AllTrue(d, hn::Eq(c3, white)))
+                    out.alpha_255 = false;
             }
         }
         // 标量尾
         for (; i < pixel_count; ++i) {
             const auto* px = data + i * channels;
             if (px[0] != px[1] || px[0] != px[2])
-                return false;
+                out.identical = false;
+            if (channels == 4 && px[3] != 255)
+                out.alpha_255 = false;
         }
-        return true;
+        return out;
     }
 
 } // namespace
 
 // ─── tiff_reader ─────────────────────────────────────────────────────────────
 
-tiff_reader::tiff_reader(tiff_reader&&) noexcept = default;
+// tif_ 是裸句柄:默认移动只复制指针,源对象析构会 TIFFClose 掉唯一句柄,
+// 使目标悬垂(读取即崩溃)—— 必须手动转移并把源置空
+tiff_reader::tiff_reader(tiff_reader&& other) noexcept
+    : tif_ { other.tif_ }
+    , info_ { std::move(other.info_) }
+    , dir_indices_ { std::move(other.dir_indices_) }
+{
+    other.tif_ = nullptr;
+}
 
 tiff_reader::~tiff_reader()
 {
@@ -235,8 +256,36 @@ auto tiff_reader::open(const std::filesystem::path& path) -> result<tiff_reader>
     reader.info_.path = path;
     reader.info_.big_tiff = magic.big_tiff;
 
-    common::device_probe_facts facts;
-    bool sampled_rgb_identity = false;
+    // 身份 tag:首页目录的标准 ASCII 标识(仅 Make 参与设备判定;
+    // 其余是导出软件元数据,收作属性面板展示)
+    {
+        auto& identity = reader.info_.identity;
+        char* s = nullptr;
+        if (TIFFGetField(tif, TIFFTAG_MAKE, &s) && s)
+            identity.make = s;
+        s = nullptr;
+        if (TIFFGetField(tif, TIFFTAG_MODEL, &s) && s)
+            identity.model = s;
+        s = nullptr;
+        if (TIFFGetField(tif, TIFFTAG_SOFTWARE, &s) && s)
+            identity.software = s;
+        s = nullptr;
+        if (TIFFGetField(tif, TIFFTAG_IMAGEDESCRIPTION, &s) && s)
+            identity.description = s;
+    }
+
+    // 第一轮判定:仅凭 Make(facts 为空)—— 命中即定案,跳过全部像素采样。
+    // 带 Make 但未命中的文件为终判 unknown,不再走特征(防误报)。
+    common::detect_device(reader.info_.identity);
+    const bool need_facts = reader.info_.identity.device.empty()
+        && reader.info_.identity.anonymous();
+
+    // 特征采样状态(仅匿名文件使用)
+    constexpr std::uint32_t rgb_sample_pages_max = 3; // 多页抽查,单页一致不足为凭
+    std::uint32_t rgb_pages_sampled = 0;
+    std::uint32_t rgba_pages_sampled = 0;
+    bool rgb_all_identical = true;
+    bool rgba_all_alpha_255 = true;
 
     std::uint16_t dir_index = 0;
     do {
@@ -301,21 +350,30 @@ auto tiff_reader::open(const std::filesystem::path& path) -> result<tiff_reader>
         page.dpi_x = map_dpi(tif, TIFFTAG_XRESOLUTION, resunit);
         page.dpi_y = map_dpi(tif, TIFFTAG_YRESOLUTION, resunit);
 
-        // pva 特征:调色板红通道中点为 0
-        if (*klass == common::pixel_class::palette
-            && !facts.has(common::device_probe_facts::palette_midpoint_zero)) {
+        // pva 特征:调色板红通道中点为 0(仅匿名文件采集;读取 colormap,零像素解码)
+        if (need_facts && *klass == common::pixel_class::palette
+            && !reader.info_.identity.facts.has(
+                common::device_probe_facts::palette_midpoint_zero)) {
             std::uint16_t *red = nullptr, *green = nullptr, *blue = nullptr;
             if (TIFFGetField(tif, TIFFTAG_COLORMAP, &red, &green, &blue)
                 && red && (1u << bps) > 128 && red[128] == 0)
-                facts.set(common::device_probe_facts::palette_midpoint_zero);
+                reader.info_.identity.facts.set(
+                    common::device_probe_facts::palette_midpoint_zero);
         }
 
-        // casic 特征:第一个 rgb/rgba 页的 RGB 三通道逐像素一致
-        if (!sampled_rgb_identity
+        // casic 特征:抽查前 N 个 rgb/rgba 页 —— R==G==B 逐像素一致;
+        // rgba 页附加通道恒 255(采样须在目录指针位于该页时进行,故在循环内)
+        if (need_facts && rgb_pages_sampled < rgb_sample_pages_max
             && (*klass == common::pixel_class::rgb || *klass == common::pixel_class::rgba)) {
-            if (rgb_channels_identical(tif, page))
-                facts.set(common::device_probe_facts::rgb_channels_identical);
-            sampled_rgb_identity = true;
+            const auto s = sample_rgb_page(tif, page);
+            if (s.sampled) {
+                rgb_all_identical = rgb_all_identical && s.identical;
+                if (*klass == common::pixel_class::rgba) {
+                    rgba_all_alpha_255 = rgba_all_alpha_255 && s.alpha_255;
+                    ++rgba_pages_sampled;
+                }
+                ++rgb_pages_sampled;
+            }
         }
 
         // SubIFD 存在性(策略过滤用)
@@ -333,20 +391,38 @@ auto tiff_reader::open(const std::filesystem::path& path) -> result<tiff_reader>
         return common::fail(common::errc::unsupported,
             "no decodable pages in TIFF: {}", path.string());
 
-    // uint8 格式特征:全部页面为 uint8(规则适用前提)
-    {
-        bool all_u8 = true;
-        for (const auto& p : reader.info_.pages)
-            if (p.format != common::sample_format::uint8) {
-                all_u8 = false;
-                break;
-            }
-        if (all_u8)
-            facts.set(common::device_probe_facts::format_uint8);
+    // 第二轮判定:匿名文件,以聚合特征定案(抽样页全过才置位)
+    if (need_facts) {
+        auto& facts = reader.info_.identity.facts;
+
+        if (rgb_pages_sampled > 0 && rgb_all_identical)
+            facts.set(common::device_probe_facts::rgb_channels_identical);
+        if (rgba_pages_sampled > 0 && rgba_all_alpha_255)
+            facts.set(common::device_probe_facts::alpha_all_255);
+
+        {
+            bool all_u8 = true;
+            for (const auto& p : reader.info_.pages)
+                if (p.format != common::sample_format::uint8) {
+                    all_u8 = false;
+                    break;
+                }
+            if (all_u8)
+                facts.set(common::device_probe_facts::format_uint8);
+        }
+
+        common::detect_device(reader.info_.identity);
     }
 
-    // 聚合完毕 → 按特征判定来源设备(规则应用是 service 层的职责,不在此)
-    reader.info_.device = common::detect_device(facts);
+    // 判定日志(设备键 + 判定来源,误判可追溯)
+    {
+        const auto& id = reader.info_.identity;
+        const auto* by = id.detected_by == common::tiff_identity::source::tags   ? "tags"
+            : id.detected_by == common::tiff_identity::source::signature         ? "signature"
+                                                                                  : "none";
+        common::log_info("tiff device: {} (by {})",
+            id.device.empty() ? std::string_view { "unknown" } : id.device, by);
+    }
     return reader;
 }
 
@@ -406,10 +482,10 @@ auto check_policy(const common::tiff_info& info, const tiff_policy& policy) -> r
     return { };
 }
 
-// ─── 组合操作:open → 策略 → 读全部页,输出原始数据(规则应用归 service)─────────
+// ─── 组合操作:open → 策略 → 读全部页 → 按识别设备应用规则 ─────────────────────
 
 auto load_tiff(const std::filesystem::path& path, const tiff_policy& policy)
-    -> result<loaded_tiff>
+    -> result<common::loaded_tiff>
 {
     auto reader = tiff_reader::open(path);
     if (!reader)
@@ -418,7 +494,7 @@ auto load_tiff(const std::filesystem::path& path, const tiff_policy& policy)
     if (auto bad = check_policy(reader->info(), policy); !bad)
         return std::unexpected(std::move(bad).error());
 
-    loaded_tiff out { .info = reader->info() }; // 拷贝构造(tiff_info 的 const id 仍可拷贝构造)
+    common::loaded_tiff out { .info = reader->info() }; // 拷贝构造(tiff_info 的 const id 仍可拷贝构造)
 
     std::size_t total = 0;
     for (const auto& p : out.info.pages)
@@ -434,6 +510,9 @@ auto load_tiff(const std::filesystem::path& path, const tiff_policy& policy)
             return std::unexpected(std::move(r).error());
         offset += size;
     }
+
+    // 设备规则:收窄冗余通道 / 解码偏移编码(软应用;应用后尺寸可能收缩)
+    common::apply_device_rules(out.pixels, out.info);
     return out;
 }
 

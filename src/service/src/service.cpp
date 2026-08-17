@@ -1,4 +1,6 @@
 #include "service.hpp"
+
+#include "document_service.hpp"
 #include "file_service.hpp"
 
 namespace usip::service {
@@ -15,11 +17,13 @@ result<void> service::start()
 {
     return common::capture([&] {
         file_service_ = std::make_unique<file_service>(executor_, bus_);
+        document_service_ = std::make_unique<document_service>(executor_, bus_);
     });
 }
 
 void service::stop()
 {
+    document_service_.reset();
     file_service_.reset();
 }
 

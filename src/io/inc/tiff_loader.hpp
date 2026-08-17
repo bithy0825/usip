@@ -1,10 +1,11 @@
 #pragma once
 
 // ==============================================================================
-// tiff_loader.hpp — TIFF 加载:open → 聚合页头 → 设备识别 → 策略过滤 → 读+规则
+// tiff_loader.hpp — TIFF 加载:open → 身份 tag → 设备识别 → 策略过滤 → 读+规则
 //
-// 职责边界:io 层产出"原始数据 + 元数据",规则本体(Highway 实现)与设备档案
-// 统一在 common/tiff.hpp 管理;本层只负责读取、策略硬过滤、按设备 apply。
+// 设备识别:身份 tag 优先(命中即定案,跳过像素采样);匿名文件才做特征采集
+// (colormap 中点 / 多页通道一致性抽查)。设备类与规则内核在 common/tiff_device.hpp
+// 管理;本层只负责读取、策略硬过滤、按识别结果应用规则。
 // ==============================================================================
 
 #include <cstdint>
@@ -61,13 +62,9 @@ private:
 // ─── 组合操作(主流程)────────────────────────────────────────────────────────
 // open → check_policy → 逐页读入单块缓冲 → 按识别到的设备档案依次应用其规则
 // (设备规则:tiff.hpp 统一管理;本层只按设备调用)
-
-struct loaded_tiff {
-    common::tiff_info info;
-    std::vector<std::byte> pixels; // 全部页按序拼接;规则应用后尺寸可能已收缩
-};
+// 结果结构 loaded_tiff 定义在 common/tiff.hpp(纯数据;core 的事件定义需要引用)
 
 [[nodiscard]] auto load_tiff(const std::filesystem::path& path,
-    const tiff_policy& policy = { }) -> result<loaded_tiff>;
+    const tiff_policy& policy = { }) -> result<common::loaded_tiff>;
 
 } // namespace usip::io

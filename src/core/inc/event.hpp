@@ -2,7 +2,10 @@
 
 #include <cbuspp/cbuspp.hpp>
 
+#include <memory>
+
 #include "error.hpp"
+#include "tiff.hpp"
 
 namespace usip::core {
 
@@ -13,10 +16,13 @@ namespace event {
 
     namespace trace_id {
         constexpr const char* file_service { "file_service" }; // NOLINT(readability-identifier-naming)
+        constexpr const char* document_service { "document_service" }; // NOLINT(readability-identifier-naming)
     }
 
     CBUSPP_EVENT(file_open_requested, "file_open_requested", void);
     CBUSPP_EVENT(file_selected, "file.selected", std::filesystem::path);
+
+    CBUSPP_EVENT(document_loaded, "document.loaded", std::shared_ptr<common::loaded_tiff>);
 
     CBUSPP_EVENT(threshold_segment_requested, "threshold_segment_requested", void);
 

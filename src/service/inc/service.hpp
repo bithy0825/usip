@@ -8,6 +8,7 @@
 
 namespace usip::service {
 
+class document_service;
 class file_service;
 
 class service {
@@ -28,6 +29,7 @@ private:
     cbuspp::bus<common::executor>& bus_;
 
     std::unique_ptr<file_service> file_service_ { nullptr };
+    std::unique_ptr<document_service> document_service_ { nullptr };
 };
 
 }
