@@ -6,7 +6,7 @@
 #include <hwy/highway.h>
 #include <tiffio.h>
 
-#include "logger.hpp" // common::log_warn(跳页告警)
+#include "logger.hpp"
 
 namespace usip::io {
 namespace {
@@ -259,26 +259,25 @@ auto tiff_reader::open(const std::filesystem::path& path) -> result<tiff_reader>
     // 身份 tag:首页目录的标准 ASCII 标识(仅 Make 参与设备判定;
     // 其余是导出软件元数据,收作属性面板展示)
     {
-        auto& identity = reader.info_.identity;
+        auto& info = reader.info_;
         char* s = nullptr;
         if (TIFFGetField(tif, TIFFTAG_MAKE, &s) && s)
-            identity.make = s;
+            info.make = s;
         s = nullptr;
         if (TIFFGetField(tif, TIFFTAG_MODEL, &s) && s)
-            identity.model = s;
+            info.model = s;
         s = nullptr;
         if (TIFFGetField(tif, TIFFTAG_SOFTWARE, &s) && s)
-            identity.software = s;
+            info.software = s;
         s = nullptr;
         if (TIFFGetField(tif, TIFFTAG_IMAGEDESCRIPTION, &s) && s)
-            identity.description = s;
+            info.description = s;
     }
 
     // 第一轮判定:仅凭 Make(facts 为空)—— 命中即定案,跳过全部像素采样。
     // 带 Make 但未命中的文件为终判 unknown,不再走特征(防误报)。
-    common::detect_device(reader.info_.identity);
-    const bool need_facts = reader.info_.identity.device.empty()
-        && reader.info_.identity.anonymous();
+    common::detect_device(reader.info_);
+    const bool need_facts = reader.info_.device.empty() && reader.info_.anonymous();
 
     // 特征采样状态(仅匿名文件使用)
     constexpr std::uint32_t rgb_sample_pages_max = 3; // 多页抽查,单页一致不足为凭
@@ -352,12 +351,12 @@ auto tiff_reader::open(const std::filesystem::path& path) -> result<tiff_reader>
 
         // pva 特征:调色板红通道中点为 0(仅匿名文件采集;读取 colormap,零像素解码)
         if (need_facts && *klass == common::pixel_class::palette
-            && !reader.info_.identity.facts.has(
+            && !reader.info_.facts.has(
                 common::device_probe_facts::palette_midpoint_zero)) {
             std::uint16_t *red = nullptr, *green = nullptr, *blue = nullptr;
             if (TIFFGetField(tif, TIFFTAG_COLORMAP, &red, &green, &blue)
                 && red && (1u << bps) > 128 && red[128] == 0)
-                reader.info_.identity.facts.set(
+                reader.info_.facts.set(
                     common::device_probe_facts::palette_midpoint_zero);
         }
 
@@ -393,7 +392,7 @@ auto tiff_reader::open(const std::filesystem::path& path) -> result<tiff_reader>
 
     // 第二轮判定:匿名文件,以聚合特征定案(抽样页全过才置位)
     if (need_facts) {
-        auto& facts = reader.info_.identity.facts;
+        auto& facts = reader.info_.facts;
 
         if (rgb_pages_sampled > 0 && rgb_all_identical)
             facts.set(common::device_probe_facts::rgb_channels_identical);
@@ -411,15 +410,15 @@ auto tiff_reader::open(const std::filesystem::path& path) -> result<tiff_reader>
                 facts.set(common::device_probe_facts::format_uint8);
         }
 
-        common::detect_device(reader.info_.identity);
+        common::detect_device(reader.info_);
     }
 
     // 判定日志(设备键 + 判定来源,误判可追溯)
     {
-        const auto& id = reader.info_.identity;
-        const auto* by = id.detected_by == common::tiff_identity::source::tags   ? "tags"
-            : id.detected_by == common::tiff_identity::source::signature         ? "signature"
-                                                                                  : "none";
+        const auto& id = reader.info_;
+        const auto* by = id.detected_by == common::tiff_info::source::tags ? "tags"
+            : id.detected_by == common::tiff_info::source::signature       ? "signature"
+                                                                           : "none";
         common::log_info("tiff device: {} (by {})",
             id.device.empty() ? std::string_view { "unknown" } : id.device, by);
     }
@@ -506,8 +505,11 @@ auto load_tiff(const std::filesystem::path& path, const tiff_policy& policy)
         const auto size = out.info.pages[i].byte_size();
         if (auto r = reader->read_page(i,
                 std::span { out.pixels.data() + offset, size });
-            !r)
-            return std::unexpected(std::move(r).error());
+            !r) {
+            // 单页损坏不否决整个文档(与打开期跳页容错同哲学):置零该页并告警
+            common::log_warn("tiff: page {} unreadable ({}), zero-filled", i, r.error());
+            std::memset(out.pixels.data() + offset, 0, size);
+        }
         offset += size;
     }
 

@@ -5,7 +5,7 @@ target_sources(usip_common
     PRIVATE
         src/executor.cpp
         src/logger.cpp
-        src/tiff_device.cpp
+        src/tiff.cpp
         src/utility.cpp
     PUBLIC
         FILE_SET HEADERS
@@ -16,7 +16,6 @@ target_sources(usip_common
             inc/logger.hpp
             inc/utility.hpp
             inc/tiff.hpp
-            inc/tiff_device.hpp
 )
 
 target_include_directories(usip_common

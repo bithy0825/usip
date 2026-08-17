@@ -1,11 +1,17 @@
-#include "tiff_device.hpp"
+// ==============================================================================
+// tiff.cpp — tiff.hpp 的实现:像素规则内核(Highway 静态分派)+ 设备检测遍历
+//
+// 静态分派:全项目统一编译基线(/arch:AVX2,见 cmake/usip-config.cmake)。
+// 每个 TU 直接用 hwy::HWY_NAMESPACE 写 SIMD —— 无需 foreach_target / HWY_EXPORT /
+// HWY_DYNAMIC_DISPATCH,PCH 亦完全兼容(不再需要 SKIP_PRECOMPILE_HEADERS)。
+// ==============================================================================
+
+#include "tiff.hpp"
 
 #include <algorithm>
 #include <cstring>
-
 #include <hwy/highway.h>
-
-#include "tiff.hpp"
+#include <type_traits>
 
 namespace usip::common {
 namespace {
@@ -155,39 +161,38 @@ namespace {
 
     // 依次调用 match,直到命中;首个命中写入结论,后续设备跳过
     template <typename... Ds>
-    auto detect_impl(tiff_identity& id, std::type_identity<std::tuple<Ds...>>) -> void
+    auto detect_impl(tiff_info& info, std::type_identity<std::tuple<Ds...>>) -> void
     {
-        ((id.device.empty() && Ds::match(id)
-                 ? (id.device = Ds::make,
-                       id.detected_by = id.anonymous()
-                           ? tiff_identity::source::signature
-                           : tiff_identity::source::tags,
+        ((info.device.empty() && Ds::match(info)
+                 ? (info.device = Ds::make,
+                       info.detected_by = info.anonymous()
+                           ? tiff_info::source::signature
+                           : tiff_info::source::tags,
                        true)
                  : false),
             ...);
     }
 
-    // 按 identity 结论找到设备类,应用其规则
+    // 按 info.device 找到设备类,应用其 transform
     template <typename... Ds>
     auto apply_impl(std::vector<std::byte>& pixels, tiff_info& doc,
         std::type_identity<std::tuple<Ds...>>) -> void
     {
-        ((doc.identity.device == Ds::make ? (Ds::apply_rules(pixels, doc), true) : false),
-            ...);
+        ((doc.device == Ds::make ? (Ds::transform(pixels, doc), true) : false), ...);
     }
 
 } // namespace
 
-auto detect_device(tiff_identity& identity) -> void
+auto detect_device(tiff_info& info) -> void
 {
-    identity.device = { };
-    identity.detected_by = tiff_identity::source::none;
-    detect_impl(identity, std::type_identity<tiff_devices> { });
+    info.device = { };
+    info.detected_by = tiff_info::source::none;
+    detect_impl(info, std::type_identity<tiff_device_list> { });
 }
 
 auto apply_device_rules(std::vector<std::byte>& pixels, tiff_info& doc) -> void
 {
-    apply_impl(pixels, doc, std::type_identity<tiff_devices> { });
+    apply_impl(pixels, doc, std::type_identity<tiff_device_list> { });
 }
 
 } // namespace usip::common
