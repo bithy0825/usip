@@ -53,8 +53,20 @@ void side_tool_bar::setup_subscriptions() { }
 
 void side_tool_bar::setup_connections()
 {
+    connect(rectangle_, &QAction::triggered, this, [this] {
+        bus_.post<core::event::rectangle_draw_requested>().sync();
+    });
+    connect(ellipse_, &QAction::triggered, this, [this] {
+        bus_.post<core::event::ellipse_draw_requested>().sync();
+    });
+    connect(polygon_, &QAction::triggered, this, [this] {
+        bus_.post<core::event::polygon_draw_requested>().sync();
+    });
     connect(threshold_seg_, &QAction::triggered, this, [this] {
         bus_.post<core::event::threshold_segment_requested>().sync();
+    });
+    connect(measure_, &QAction::triggered, this, [this] {
+        bus_.post<core::event::measure_requested>().sync();
     });
 }
 

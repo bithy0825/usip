@@ -20,7 +20,6 @@ namespace usip::core {
 // ─── ROI:矢量选区(图像像素坐标);渲染时动态绘制边框/填充,不存光栅 ──────────
 struct roi {
     Clipper2Lib::PathsD path;
-    bool visible { true };
 };
 
 // ─── 标注:两点 + 标签(如 "35.96mm";由测量方按 dpi 换算后写入)──────────────
@@ -33,7 +32,6 @@ struct annotation {
 struct mask {
     QImage image { }; // 8-bit 灰度,0=黑,255=白
     std::pair<int, int> range { 0, 255 }; // 阈值分割上下限
-    bool visible { true }; // 显示开关
 };
 
 // ─── page:显示基本单元 ─────────────────────────────────────────────────────

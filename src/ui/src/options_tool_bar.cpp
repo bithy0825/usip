@@ -115,22 +115,84 @@ void options_tool_bar::setup_ui()
     cancel_->setShortcut(QKeySequence(Qt::Key_Escape));
 
     empty_ = new QWidget(this);
+    draw_options_ = new draw_options(*this, bus_, this);
     mask_options_ = new mask_options(*this, bus_, this);
+    measure_options_ = new measure_options(*this, bus_, this);
     options_stack_->addWidget(empty_);
     options_stack_->addWidget(mask_options_);
+    options_stack_->addWidget(draw_options_);
+    options_stack_->addWidget(measure_options_);
 }
 
 void options_tool_bar::setup_subscriptions()
 {
+    bus_.on<core::event::rectangle_draw_requested>().call(this, &options_tool_bar::on_rectangle_draw_requested);
+    bus_.on<core::event::ellipse_draw_requested>().call(this, &options_tool_bar::on_ellipse_draw_requested);
+    bus_.on<core::event::polygon_draw_requested>().call(this, &options_tool_bar::on_polygon_draw_requested);
     bus_.on<core::event::threshold_segment_requested>().call(this, &options_tool_bar::on_threshold_segment_requested);
+    bus_.on<core::event::measure_requested>().call(this, &options_tool_bar::on_measure_requested);
 }
 
-void options_tool_bar::setup_connections() { }
+void options_tool_bar::setup_connections()
+{
+    connect(apply_, &QAction::triggered, this, [this] {
+        bus_.post<core::event::tool_result_applied>().sync();
+    });
+    connect(cancel_, &QAction::triggered, this, [this] {
+        bus_.post<core::event::tool_result_canceled>().sync();
+    });
+}
+
+void options_tool_bar::on_rectangle_draw_requested()
+{
+    options_stack_->setCurrentWidget(draw_options_);
+}
+
+void options_tool_bar::on_ellipse_draw_requested()
+{
+    options_stack_->setCurrentWidget(draw_options_);
+}
+
+void options_tool_bar::on_polygon_draw_requested()
+{
+    options_stack_->setCurrentWidget(draw_options_);
+}
 
 void options_tool_bar::on_threshold_segment_requested()
 {
     options_stack_->setCurrentWidget(mask_options_);
 }
+
+void options_tool_bar::on_measure_requested()
+{
+    options_stack_->setCurrentWidget(measure_options_);
+}
+
+// ---------------------------------------------------------------------------
+// draw_options
+// ---------------------------------------------------------------------------
+draw_options::draw_options(options_tool_bar& opt_tool_bar, cbuspp::bus<common::executor>& bus, QWidget* parent)
+    : ui_protocol(bus, parent)
+    , opt_tool_bar_(opt_tool_bar)
+{
+    setup_ui();
+    setup_subscriptions();
+    setup_connections();
+}
+
+draw_options::~draw_options() = default;
+
+void draw_options::setup_ui()
+{
+    setMovable(false);
+
+    addAction(opt_tool_bar_.apply_action());
+    addAction(opt_tool_bar_.cancel_action());
+}
+
+void draw_options::setup_subscriptions() { }
+
+void draw_options::setup_connections() { }
 
 // ---------------------------------------------------------------------------
 // mask_options
@@ -215,11 +277,65 @@ void mask_options::setup_connections()
         if (!picked.isValid())
             return;
         [[maybe_unused]] auto res = core::config::global()->set<std::string>("mask.color", picked.name().toStdString());
+        bus_.post<core::event::render_options_changed>().sync(); // 通知订阅者从 config 重读
         color_->setIcon(make_mask_swatch(picked, devicePixelRatioF()));
     });
 
-    connect(opacity_, &QSlider::valueChanged, this, [](int value) {
+    connect(opacity_, &QSlider::valueChanged, this, [this](int value) {
         [[maybe_unused]] auto res = core::config::global()->set<float>("mask.opacity", value / 100.0F);
+        bus_.post<core::event::render_options_changed>().sync();
+    });
+}
+
+measure_options::measure_options(options_tool_bar& opt_tool_bar, cbuspp::bus<common::executor>& bus, QWidget* parent)
+    : ui_protocol(bus, parent)
+    , opt_tool_bar_(opt_tool_bar)
+{
+    setup_ui();
+    setup_subscriptions();
+    setup_connections();
+}
+
+measure_options::~measure_options() = default;
+
+void measure_options::setup_ui()
+{
+    setMovable(false);
+
+    auto* width_label = new QLabel(tr("Line Width"), this);
+    line_width_ = new QSpinBox(this);
+    line_width_->setRange(1, 10);
+    line_width_->setValue(core::config::global()->get<int>("measure.line_width"));
+
+    auto* color_label = new QLabel(tr("Line Color"), this);
+    const QColor color(QString::fromStdString(core::config::global()->get<std::string>("measure.line_color")));
+    color_ = new QToolButton(this);
+    color_->setIcon(make_mask_swatch(color.isValid() ? color : QColor(Qt::green), devicePixelRatioF()));
+    color_->setToolTip(tr("Line color"));
+
+    addWidget(width_label);
+    addWidget(line_width_);
+    addWidget(color_label);
+    addWidget(color_);
+
+    addSeparator();
+
+    addAction(opt_tool_bar_.apply_action());
+    addAction(opt_tool_bar_.cancel_action());
+}
+
+void measure_options::setup_subscriptions() { }
+
+void measure_options::setup_connections()
+{
+    connect(color_, &QToolButton::clicked, this, [this] {
+        const QColor initial(QString::fromStdString(core::config::global()->get<std::string>("measure.line_color")));
+        const QColor picked = QColorDialog::getColor(initial, this, tr("Measure Line Color"));
+        if (!picked.isValid())
+            return;
+        [[maybe_unused]] auto res = core::config::global()->set<std::string>("measure.line_color", picked.name().toStdString());
+        bus_.post<core::event::render_options_changed>().sync(); // 通知订阅者从 config 重读
+        color_->setIcon(make_mask_swatch(picked, devicePixelRatioF()));
     });
 }
 
