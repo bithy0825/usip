@@ -19,14 +19,13 @@ namespace usip::core {
 
 // ─── ROI:矢量选区(图像像素坐标);渲染时动态绘制边框/填充,不存光栅 ──────────
 struct roi {
-    Clipper2Lib::PathD path;
+    Clipper2Lib::PathsD path;
     bool visible { true };
 };
 
 // ─── 标注:两点 + 标签(如 "35.96mm";由测量方按 dpi 换算后写入)──────────────
 struct annotation {
-    QPointF a { };
-    QPointF b { };
+    std::pair<QPointF, QPointF> line { }; // 两点
     std::string label { };
 };
 
@@ -42,7 +41,7 @@ struct page {
     // 身份与来源
     common::page_info info; // 文件元数据(io 产出;info.id 即页 uuid)
     cuuidpp::uuid doc_id { }; // 所属文档 uuid(= tiff_info.id)
-    std::uint32_t index { 0 }; // 页序:运行期视图状态,故不放 page_info
+    std::uint32_t index { 0 }; // 页序
 
     // 原始数据(设备规则已应用;zero_is_white/orient 不碰像素,归显示管线)
     QImage image { };
@@ -59,6 +58,7 @@ struct page {
 struct document {
     common::tiff_info info { };
     std::unordered_map<cuuidpp::uuid, std::shared_ptr<page>> pages { }; // key=page_info.id
+    std::pair<float, float> step { 1.0f, 1.0f }; // 采集步长
     cuuidpp::uuid active_page { }; // 当前页 uuid(= page_info.id)
 };
 
