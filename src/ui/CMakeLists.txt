@@ -13,6 +13,9 @@ target_sources(usip_ui
         src/info_dock.cpp
         src/hist_dock.cpp
         src/QRangeSlider.cpp
+        src/canvas.cpp
+        src/pipeline.cpp
+        src/status_bar.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS inc
@@ -28,6 +31,9 @@ target_sources(usip_ui
             inc/info_dock.hpp
             inc/hist_dock.hpp
             inc/QRangeSlider.hpp
+            inc/canvas.hpp
+            inc/pipeline.hpp
+            inc/status_bar.hpp
 )
 
 # 自动收集 icon 目录下的 SVG,编译进 Qt 资源(:/icon/<name>.svg)

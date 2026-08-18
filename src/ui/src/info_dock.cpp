@@ -7,7 +7,6 @@
 #include <QStackedWidget>
 #include <QTableWidget>
 
-
 namespace usip::ui {
 
 info_dock::info_dock(cbuspp::bus<common::executor>& bus, QWidget* parent)
@@ -52,10 +51,23 @@ void info_dock::setup_connections()
 QTableWidget* info_dock::make_table(QWidget* parent)
 {
     auto* table = new QTableWidget(parent);
+    table->setMinimumWidth(520);
     table->setColumnCount(11);
-    table->setHorizontalHeaderLabels({ tr("Index"), tr("Number"), tr("floor"), tr("ceil"), tr("Num_ROI"),
-        tr("Num_Pixel"), tr("Num_Valid"), tr("Mean"), tr("Std"), tr("Min"), tr("Max") });
-    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table->setHorizontalHeaderLabels({ tr("Index"), tr("Numer"), tr("Floor"), tr("Ceil"), tr("Pixel"),
+        tr("Valid"), tr("Percent"), tr("Mean"), tr("Std"), tr("Min"), tr("Max") });
+
+    QHeaderView* header = table->horizontalHeader();
+
+    QList<int> fixedCols = { 0, 1, 2, 3, 6, 7, 8, 9, 10 };
+    for (int col : fixedCols) {
+        table->resizeColumnToContents(col); // 此时无数据，仅依据表头标签
+        header->setSectionResizeMode(col, QHeaderView::Fixed); // 锁定宽度，不再变化
+    }
+
+    header->setSectionResizeMode(4, QHeaderView::Stretch);
+    header->setSectionResizeMode(5, QHeaderView::Stretch);
+
+    header->setStretchLastSection(false);
     return table;
 }
 

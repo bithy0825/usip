@@ -283,8 +283,18 @@ void register_builtin_settings(settings_registry& reg)
            "maximum number of recent file entries to keep")
         .range(1, 100);
 
+    // ── 渲染(立即生效,canvas 每帧快照读取)──────────────────────────
+    reg.add<std::string>("pseudocolor.colormap", "jet",
+        "pseudocolor colormap: jet | parula | viridis | plasma");
+    reg.add<bool>("pseudocolor.zero_is_black", true,
+        "pin domain-zero (gray 0 / zero diff) to pure black");
+
     reg.add<std::string>("mask.color", "#FF0000", "mask color");
-    reg.add<float>("mask.opacity", 0.5, "mask opacity");
+    reg.add<float>("mask.opacity", 0.5F, "mask opacity");
+
+    reg.add<int>("measure.line_width", 2, "measurement line width")
+        .range(1, 10);
+    reg.add<std::string>("measure.line_color", "#00FF00", "measurement line color");
 }
 
 } // namespace usip::core

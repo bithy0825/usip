@@ -3,9 +3,8 @@
 
 #include <QComboBox>
 #include <QFrame>
-#include <QHBoxLayout>
+#include <QGridLayout>
 #include <QToolButton>
-#include <QVBoxLayout>
 
 namespace usip::ui {
 
@@ -44,23 +43,23 @@ void hist_dock::setup_ui()
     mode_combo_->addItem(tr("Count"));
     mode_combo_->addItem(tr("Percent"));
 
-    auto* btn_row = new QHBoxLayout;
-    // btn_row->setContentsMargins(2, 2, 2, 2);
-    // btn_row->setSpacing(2);
-    btn_row->addWidget(add_btn_);
-    btn_row->addWidget(sub_btn_);
-    btn_row->addWidget(reset_btn_);
-    btn_row->addStretch();
-    btn_row->addWidget(mode_combo_);
-
     hist_view_ = new QWidget(container);
     hist_view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    auto* layout = new QVBoxLayout(container);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-    layout->addLayout(btn_row);
-    layout->addWidget(hist_view_, 1);
+    auto* layout = new QGridLayout(container);
+    layout->addWidget(add_btn_, 0, 0);
+    layout->addWidget(sub_btn_, 0, 1);
+    layout->addWidget(reset_btn_, 0, 2);
+    layout->addWidget(mode_combo_, 0, 4);
+    layout->addWidget(hist_view_, 1, 0, 1, 5);
+
+    layout->setRowStretch(0, 0);
+    layout->setRowStretch(1, 1);
+    layout->setColumnStretch(0, 0);
+    layout->setColumnStretch(1, 0);
+    layout->setColumnStretch(2, 0);
+    layout->setColumnStretch(3, 1);
+    layout->setColumnStretch(4, 0);
 
     setWidget(container);
 }

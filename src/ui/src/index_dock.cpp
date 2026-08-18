@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QGridLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QStackedWidget>
 #include <QTableWidget>
@@ -67,8 +68,21 @@ void index_dock::setup_connections()
 QTableWidget* index_dock::make_table(QWidget* parent)
 {
     QTableWidget* table = new QTableWidget(parent);
-    table->setColumnCount(5);
-    table->setHorizontalHeaderLabels({ tr("Index"), tr("Num_ROI"), tr("Num_Pixel"), tr("Mean"), tr("Std") });
+    table->setColumnCount(8);
+    table->setHorizontalHeaderLabels({ tr("Index"), tr("Num_ROI"), tr("Pixel"), tr("Valid"), tr("Mean"), tr("Std"),
+        tr("Min"), tr("Max") });
+    QHeaderView* header = table->horizontalHeader();
+
+    QList<int> fixedCols = { 0, 1, 4, 5, 6, 7 };
+    for (int col : fixedCols) {
+        table->resizeColumnToContents(col); // 此时无数据，仅依据表头标签
+        header->setSectionResizeMode(col, QHeaderView::Fixed); // 锁定宽度，不再变化
+    }
+
+    header->setSectionResizeMode(2, QHeaderView::Stretch);
+    header->setSectionResizeMode(3, QHeaderView::Stretch);
+    header->setStretchLastSection(false);
+
     return table;
 }
 
