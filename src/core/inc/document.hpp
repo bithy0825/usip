@@ -31,7 +31,7 @@ struct annotation {
 // ─── mask:阈值分割蒙版 ──────────────────────────────────────────────────
 struct mask {
     QImage image { }; // 8-bit 灰度,0=黑,255=白
-    std::pair<int, int> range { 0, 255 }; // 阈值分割上下限
+    std::pair<double, double> range { 0, 255 }; // 阈值分割上下限
 };
 
 // ─── page:显示基本单元 ─────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ struct page {
 struct document {
     common::tiff_info info { };
     std::unordered_map<cuuidpp::uuid, std::shared_ptr<page>> pages { }; // key=page_info.id
-    std::pair<float, float> step { 1.0f, 1.0f }; // 采集步长
+    std::pair<double, double> step { 1.0, 1.0 }; // 采集步长
     cuuidpp::uuid active_page { }; // 当前页 uuid(= page_info.id)
 };
 

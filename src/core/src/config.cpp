@@ -290,7 +290,7 @@ void register_builtin_settings(settings_registry& reg)
         "pin domain-zero (gray 0 / zero diff) to pure black");
 
     reg.add<std::string>("mask.color", "#FF0000", "mask color");
-    reg.add<float>("mask.opacity", 0.5F, "mask opacity");
+    reg.add<double>("mask.opacity", 0.5, "mask opacity");
 
     reg.add<int>("measure.line_width", 2, "measurement line width")
         .range(1, 10);

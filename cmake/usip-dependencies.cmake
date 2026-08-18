@@ -26,6 +26,7 @@ include(usip-libtiff)
 include(usip-highway)
 include(usip-tbb)
 include(usip-clipper2)
+include(usip-magicenum)
 # include(usip-vtk)       # 不再使用 VTK
 # include(usip-exprtk)    # 不再使用 exprtk
 # include(usip-json)      # 不再使用 nlohmann_json

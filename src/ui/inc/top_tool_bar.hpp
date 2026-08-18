@@ -1,8 +1,12 @@
 #pragma once
 
 #include <QToolBar>
+#include <QToolButton>
 
 #include "ui_protocol.hpp"
+
+class QComboBox;
+class QCheckBox;
 
 namespace usip::ui {
 
@@ -28,6 +32,9 @@ private:
 
 private:
     menu_bar& menu_bar_;
+
+    // colormap 色条按钮(弹簧与 about 之间;点击弹菜单,无下拉三角)
+    QToolButton* colormap_button_ { nullptr };
 };
 
 } // namespace usip::ui

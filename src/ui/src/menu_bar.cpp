@@ -51,6 +51,9 @@ void menu_bar::setup_ui()
     mask_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_M));
     mask_->setCheckable(true);
     mask_->setChecked(true);
+    zero_is_black_ = view_menu->addAction(reg.icon("zero_is_black").value_or(QIcon { }), tr("&Zero is Black"));
+    zero_is_black_->setCheckable(true);
+    zero_is_black_->setChecked(core::config::global()->get<bool>("pseudocolor.zero_is_black"));
     view_menu->addSeparator();
     clear_constituency_ = view_menu->addAction(reg.icon("clear_constituency").value_or(QIcon { }), tr("Clear &Constituency"));
     clear_measurements_ = view_menu->addAction(reg.icon("clear_measurement").value_or(QIcon { }), tr("Clear &Measurements"));

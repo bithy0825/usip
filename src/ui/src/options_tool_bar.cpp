@@ -266,24 +266,36 @@ void mask_options::setup_subscriptions() { }
 
 void mask_options::setup_connections()
 {
-    connect(threshold_, &QRangeSlider::lowerValueChanged, floor_, &QSpinBox::setValue);
-    connect(threshold_, &QRangeSlider::upperValueChanged, ceil_, &QSpinBox::setValue);
-    connect(floor_, &QSpinBox::valueChanged, threshold_, &QRangeSlider::setLowerValue);
-    connect(ceil_, &QSpinBox::valueChanged, threshold_, &QRangeSlider::setUpperValue);
+    auto reg = core::config::global();
+    connect(threshold_, &QRangeSlider::lowerValueChanged, this, [this](int value) {
+        floor_->setValue(value);
+        bus_.post<core::event::mask_floor_changed>(cbuspp::value<double>(value)).sync();
+    });
+    connect(threshold_, &QRangeSlider::upperValueChanged, this, [this](int value) {
+        ceil_->setValue(value);
+        bus_.post<core::event::mask_ceiling_changed>(cbuspp::value<double>(value)).sync();
+    });
+    connect(floor_, &QSpinBox::valueChanged, this, [this](int value) {
+        threshold_->setLowerValue(value);
+        bus_.post<core::event::mask_floor_changed>(cbuspp::value<double>(value)).sync();
+    });
+    connect(ceil_, &QSpinBox::valueChanged, this, [this](int value) {
+        threshold_->setUpperValue(value);
+        bus_.post<core::event::mask_ceiling_changed>(cbuspp::value<double>(value)).sync();
+    });
+    connect(opacity_, &QSlider::valueChanged, this, [this, reg](int value) {
+        bus_.post<core::event::render_options_changed>().sync();
+        [[maybe_unused]] auto res = reg->set<double>("mask.opacity", value / 100.0);
+    });
 
-    connect(color_, &QToolButton::clicked, this, [this] {
-        const QColor initial(QString::fromStdString(core::config::global()->get<std::string>("mask.color")));
+    connect(color_, &QToolButton::clicked, this, [this, reg] {
+        const QColor initial(QString::fromStdString(reg->get<std::string>("mask.color")));
         const QColor picked = QColorDialog::getColor(initial, this, tr("Mask Color"));
         if (!picked.isValid())
             return;
-        [[maybe_unused]] auto res = core::config::global()->set<std::string>("mask.color", picked.name().toStdString());
-        bus_.post<core::event::render_options_changed>().sync(); // 通知订阅者从 config 重读
+        bus_.post<core::event::mask_color_changed>(cbuspp::value<QColor>(picked)).sync();
+        [[maybe_unused]] auto res = reg->set<std::string>("mask.color", picked.name().toStdString());
         color_->setIcon(make_mask_swatch(picked, devicePixelRatioF()));
-    });
-
-    connect(opacity_, &QSlider::valueChanged, this, [this](int value) {
-        [[maybe_unused]] auto res = core::config::global()->set<float>("mask.opacity", value / 100.0F);
-        bus_.post<core::event::render_options_changed>().sync();
     });
 }
 
@@ -328,13 +340,20 @@ void measure_options::setup_subscriptions() { }
 
 void measure_options::setup_connections()
 {
-    connect(color_, &QToolButton::clicked, this, [this] {
-        const QColor initial(QString::fromStdString(core::config::global()->get<std::string>("measure.line_color")));
+    auto reg = core::config::global();
+
+    connect(line_width_, &QSpinBox::valueChanged, this, [this, reg](int value) {
+        bus_.post<core::event::measure_line_width_changed>(cbuspp::value<int>(value)).sync();
+        [[maybe_unused]] auto res = reg->set<int>("measure.line_width", value);
+    });
+
+    connect(color_, &QToolButton::clicked, this, [this, reg] {
+        const QColor initial(QString::fromStdString(reg->get<std::string>("measure.line_color")));
         const QColor picked = QColorDialog::getColor(initial, this, tr("Measure Line Color"));
         if (!picked.isValid())
             return;
-        [[maybe_unused]] auto res = core::config::global()->set<std::string>("measure.line_color", picked.name().toStdString());
-        bus_.post<core::event::render_options_changed>().sync(); // 通知订阅者从 config 重读
+        bus_.post<core::event::measure_line_color_changed>(cbuspp::value<QColor>(picked)).sync();
+        [[maybe_unused]] auto res = reg->set<std::string>("measure.line_color", picked.name().toStdString());
         color_->setIcon(make_mask_swatch(picked, devicePixelRatioF()));
     });
 }
