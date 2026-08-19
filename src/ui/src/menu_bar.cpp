@@ -50,7 +50,7 @@ void menu_bar::setup_ui()
     mask_ = view_menu->addAction(reg.icon("mask").value_or(QIcon { }), tr("&Mask"));
     mask_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_M));
     mask_->setCheckable(true);
-    mask_->setChecked(true);
+    mask_->setChecked(false);
     zero_is_black_ = view_menu->addAction(reg.icon("zero_is_black").value_or(QIcon { }), tr("&Zero is Black"));
     zero_is_black_->setCheckable(true);
     zero_is_black_->setChecked(core::config::global()->get<bool>("pseudocolor.zero_is_black"));
@@ -85,7 +85,7 @@ void menu_bar::setup_connections()
     });
     connect(zero_is_black_, &QAction::triggered, this, [this](bool checked) {
         bus_.post<core::event::pseudocolor_zero_is_black_toggled>(
-            cbuspp::value<bool> { checked })
+                cbuspp::value<bool> { checked })
             .sync();
         if (auto r = core::config::global()->set<bool>("pseudocolor.zero_is_black", checked);
             !r) {

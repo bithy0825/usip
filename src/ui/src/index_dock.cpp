@@ -237,6 +237,7 @@ QTableWidget* index_dock::make_table(QWidget* parent)
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::SingleSelection);
 
+    table->verticalHeader()->hide();
     // 行选中 → 请求切换激活页(uuid 绑在 Index 单元格 UserRole)
     connect(table, &QTableWidget::itemSelectionChanged, this, [this, table]() {
         const int row = table->currentRow();
@@ -244,7 +245,7 @@ QTableWidget* index_dock::make_table(QWidget* parent)
             return;
         if (const auto* item = table->item(row, 0))
             bus_.post<core::event::page_switch_requested>(cbuspp::value<cuuidpp::uuid> {
-                item->data(Qt::UserRole).value<cuuidpp::uuid>() })
+                                                              item->data(Qt::UserRole).value<cuuidpp::uuid>() })
                 .sync();
     });
     return table;

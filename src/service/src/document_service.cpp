@@ -361,15 +361,11 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
         if (auto hist = compute_histogram(pg.image); hist.channels != 0) [[likely]]
             pg.info.hist = std::move(hist);
 
-        // 初始 mask:仅首页(active_page 默认 index 0)建全有效初值;其余页
-        // 惰性,阈值事件首次触达时补(canvas 回调里 emplace)
-        if (i == 0) {
-            auto& m = pg.mask.emplace();
-            m.image = QImage { static_cast<int>(pinfo.width),
-                static_cast<int>(pinfo.height), QImage::Format_Grayscale8 };
-            m.image.fill(255);
-            m.range = { 0.0, 255.0 };
-        }
+        auto& m = pg.mask.emplace();
+        m.image = QImage { static_cast<int>(pinfo.width),
+            static_cast<int>(pinfo.height), QImage::Format_Grayscale8 };
+        m.image.fill(255);
+        m.range = { 0.0, 255.0 };
 
         offset = slice_end;
     }
