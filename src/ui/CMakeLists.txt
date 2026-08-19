@@ -33,6 +33,7 @@ target_sources(usip_ui
             inc/QRangeSlider.hpp
             inc/canvas.hpp
             inc/draw.hpp
+            inc/tool.hpp
             inc/status_bar.hpp
 )
 

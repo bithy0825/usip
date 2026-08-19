@@ -1,16 +1,22 @@
 #include "hist_dock.hpp"
 #include "icon_registry.hpp"
 
-#include <QBarSet>
 #include <QBarSeries>
+#include <QBarSet>
 #include <QChart>
 #include <QChartView>
+#include <QColor>
 #include <QComboBox>
+#include <QCursor>
+#include <QEvent>
 #include <QGridLayout>
 #include <QLegend>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QToolButton>
+#include <QToolTip>
 #include <QValueAxis>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <numeric>
@@ -20,8 +26,8 @@ namespace usip::ui {
 
 namespace {
 
-    // 纵向视野:每步缩放系数;顶值夹在 [1, total](下限保细节,上限防条形消失)
     constexpr double zoom_step { 1.25 };
+    constexpr double wheel_step { 1.1 };
 
 }
 
@@ -62,33 +68,43 @@ void hist_dock::setup_ui()
 
     // ── QChart 直方图:256 bin 条形,主题/字体随 Qt 全局风格 ──────────
     auto* chart = new QChart();
+    chart->setTitle(tr("Gray Histogram"));
     chart->legend()->hide();
     chart->setContentsMargins(0, 0, 0, 0);
     chart->setBackgroundVisible(false);
 
     auto* series = new QBarSeries(chart);
+    series->setBarWidth(0.6);
     bars_ = new QBarSet(QString(), chart);
+    bars_->setColor(QColor { 0x4D, 0x4D, 0x4D }); // 默认主题条形过浅,固定深灰
+    // 默认白描边:全宽视图下每条约 1px,描边吃掉填色 → 整片白;描边同填色
+    bars_->setBorderColor(QColor { 0x4D, 0x4D, 0x4D });
     series->append(bars_);
 
-    auto* x_axis = new QValueAxis(chart);
-    x_axis->setRange(0, 256); // bin i 条形占 [i, i+1)
-    x_axis->setLabelFormat("%d");
-    x_axis->setTickInterval(64);
-    x_axis->setMinorTickCount(0);
+    x_axis_ = new QValueAxis(chart);
+    x_axis_->setRange(0, 256); // bin i 条形占 [i, i+1)
+    x_axis_->setLabelFormat("%d");
+    x_axis_->setTickInterval(64);
+    x_axis_->setMinorTickCount(0);
+    x_axis_->setTitleText(tr("Pixel"));
 
     y_axis_ = new QValueAxis(chart);
-    y_axis_->setRange(0, 1); // 由 apply_y_axis() 接管
+    y_axis_->setRange(0, 100); // 初始无数据:0..100,整数刻度 0/25/50/75/100
+    y_axis_->setTickCount(5);
     y_axis_->setLabelFormat("%.0f");
+    y_axis_->setTitleText(tr("Statistics"));
 
     chart->addSeries(series);
-    chart->addAxis(x_axis, Qt::AlignBottom);
+    chart->addAxis(x_axis_, Qt::AlignBottom);
     chart->addAxis(y_axis_, Qt::AlignLeft);
-    series->attachAxis(x_axis);
+    series->attachAxis(x_axis_);
     series->attachAxis(y_axis_);
 
     hist_view_ = new QChartView(chart, container);
     hist_view_->setRenderHint(QPainter::Antialiasing);
+    hist_view_->setRubberBand(QChartView::NoRubberBand); // 左键留给拖动平移
     hist_view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    hist_view_->viewport()->installEventFilter(this); // 滚轮缩放 + 左键拖动平移
 
     auto* layout = new QGridLayout(container);
     layout->addWidget(add_btn_, 0, 0);
@@ -117,19 +133,78 @@ void hist_dock::setup_subscriptions()
 
 void hist_dock::setup_connections()
 {
-    connect(add_btn_, &QToolButton::clicked, this, [this]() {
-        top_raw_ = std::clamp(top_raw_ / zoom_step, 1.0, std::max<double>(total_, 1.0));
-        apply_y_axis();
-    });
-    connect(sub_btn_, &QToolButton::clicked, this, [this]() {
-        top_raw_ = std::clamp(top_raw_ * zoom_step, 1.0, std::max<double>(total_, 1.0));
-        apply_y_axis();
-    });
+    connect(add_btn_, &QToolButton::clicked, this, [this]() { zoom_view(1.0 / zoom_step); });
+    connect(sub_btn_, &QToolButton::clicked, this, [this]() { zoom_view(zoom_step); });
     connect(reset_btn_, &QToolButton::clicked, this, [this]() { reset_view(); });
-    connect(mode_combo_, &QComboBox::activated, this, [this](int) {
-        refill_bars(); // 换算口径变,条形数值重填
-        apply_y_axis();
+    connect(mode_combo_, &QComboBox::activated, this, [this](int index) {
+        const bool new_percent = index == 1;
+        if (new_percent == percent_) // 重选同项:不动(activated 在同项也发)
+            return;
+        percent_ = new_percent;
+        const double denom = std::max<double>(total_, 1.0);
+        const double lo = y_axis_->min(), hi = y_axis_->max();
+        if (new_percent)
+            y_axis_->setRange(lo / denom * 100.0, hi / denom * 100.0);
+        else
+            y_axis_->setRange(lo * denom / 100.0, hi * denom / 100.0);
+        refill_bars();
     });
+
+    // 悬停读数:QBarSet::hovered 内建信号 → tooltip(像素值 + 当前口径计数)
+    connect(bars_, &QBarSet::hovered, this, [this](bool status, int index) {
+        if (!status) {
+            QToolTip::hideText();
+            return;
+        }
+        const double count = static_cast<double>(bins_[index]);
+        const QString value = percent_mode()
+            ? QString::number(count / std::max<double>(total_, 1.0) * 100.0, 'f', 2) + '%'
+            : QString::number(count, 'f', 0);
+        QToolTip::showText(QCursor::pos(), tr("Pixel %1: %2").arg(index).arg(value), hist_view_);
+    });
+}
+
+bool hist_dock::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched != hist_view_->viewport())
+        return QDockWidget::eventFilter(watched, event);
+
+    switch (event->type()) {
+    case QEvent::Wheel: { // 滚轮缩放
+        const auto* wheel = static_cast<const QWheelEvent*>(event);
+        hist_view_->chart()->zoom(wheel->angleDelta().y() > 0 ? wheel_step : 1.0 / wheel_step);
+        return true;
+    }
+    case QEvent::MouseButtonPress: { // 左键按下:开始拖动平移
+        const auto* mouse = static_cast<const QMouseEvent*>(event);
+        if (mouse->button() == Qt::LeftButton) {
+            panning_ = true;
+            pan_last_ = mouse->position();
+            hist_view_->setCursor(Qt::ClosedHandCursor);
+            return true;
+        }
+        break;
+    }
+    case QEvent::MouseMove: // 拖动:内容随手(scroll 的 x 反向、y 同向)
+        if (panning_) {
+            const auto* mouse = static_cast<const QMouseEvent*>(event);
+            const QPointF delta = mouse->position() - pan_last_;
+            pan_last_ = mouse->position();
+            hist_view_->chart()->scroll(-delta.x(), delta.y());
+            return true;
+        }
+        break;
+    case QEvent::MouseButtonRelease:
+        if (panning_ && static_cast<const QMouseEvent*>(event)->button() == Qt::LeftButton) {
+            panning_ = false;
+            hist_view_->unsetCursor();
+            return true;
+        }
+        break;
+    default:
+        break;
+    }
+    return QDockWidget::eventFilter(watched, event);
 }
 
 void hist_dock::on_document_changed(const cbuspp::value<std::shared_ptr<core::document>>& value)
@@ -142,9 +217,8 @@ void hist_dock::on_document_changed(const cbuspp::value<std::shared_ptr<core::do
     if (it == doc->pages.end() || !it->second->info.hist) [[unlikely]] {
         bins_ = { };
         total_ = 0;
-        top_raw_ = 1.0;
         refill_bars();
-        apply_y_axis();
+        reset_view();
         return;
     }
 
@@ -156,29 +230,44 @@ void hist_dock::on_document_changed(const cbuspp::value<std::shared_ptr<core::do
     reset_view(); // 新页新数据,复位视野
 }
 
+bool hist_dock::percent_mode() const
+{
+    return percent_;
+}
+
+auto hist_dock::display(double count) const -> double
+{
+    return percent_mode() ? count / std::max<double>(total_, 1.0) * 100.0 : count;
+}
+
 void hist_dock::refill_bars()
 {
-    const bool percent = mode_combo_->currentIndex() == 1;
     const double denom = std::max<double>(total_, 1.0);
     bars_->remove(0, bars_->count());
     for (const auto count : bins_)
-        bars_->append(percent ? count / denom * 100.0 : static_cast<double>(count));
+        bars_->append(percent_mode() ? count / denom * 100.0 : static_cast<double>(count));
 }
 
-void hist_dock::apply_y_axis()
+void hist_dock::zoom_view(double factor)
 {
-    const bool percent = mode_combo_->currentIndex() == 1;
-    y_axis_->setMin(0);
-    y_axis_->setMax(percent ? top_raw_ / std::max<double>(total_, 1.0) * 100.0 : top_raw_);
-    y_axis_->setLabelFormat(percent ? "%.1f" : "%.0f");
+    if (total_ == 0) [[unlikely]] // 无数据:保持 0..100 占位
+        return;
+    // 只调 y 顶值(0 起);夹在 [display(1), display(total)]:下限保细节,上限防条形消失
+    const double lo = display(1.0), hi = display(static_cast<double>(total_));
+    y_axis_->setMax(std::clamp(y_axis_->max() * factor, std::min(lo, hi), std::max(lo, hi)));
 }
 
 void hist_dock::reset_view()
 {
+    x_axis_->setRange(0, 256); // 框选/滚轮可能挪过 x,复位一并还原
+    y_axis_->setMin(0);
+    if (total_ == 0) [[unlikely]] {
+        y_axis_->setMax(100.0); // 无数据:0..100 占位,两种模式刻度同为 0/25/50/75/100
+        return;
+    }
     // 排除 0 像素(bin 0 常为背景,否则其余条形被压扁);最高条 ≈ 90% 高
     const auto peak = std::ranges::max(std::span<const std::uint64_t> { bins_ }.subspan(1));
-    top_raw_ = std::max(static_cast<double>(peak) / 0.9, 1.0);
-    apply_y_axis();
+    y_axis_->setMax(std::max(display(static_cast<double>(peak)) / 0.9, display(1.0)));
 }
 
 }
