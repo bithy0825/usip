@@ -4,12 +4,14 @@
 #include <cuuidpp/cuuidpp.hpp>
 #include <unordered_map>
 
+#include "event.hpp"
 #include "ui_protocol.hpp"
 
 class QComboBox;
 class QDoubleSpinBox;
 class QStackedWidget;
 class QTableWidget;
+class QTableWidgetItem;
 class QWidget;
 
 namespace usip::ui {
@@ -32,8 +34,15 @@ private:
     void setup_subscriptions();
     void setup_connections();
 
+    void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    void on_page_rois_changed(const cbuspp::value<std::shared_ptr<core::page>>& value);
+
 private:
     QTableWidget* make_table(QWidget* parent);
+
+    // 选中该页所在行(阻断信号:程序性选择不发 page_switch_requested)
+    void select_page_row(const cuuidpp::uuid& page_id);
 
 private:
     QComboBox* doc_ { nullptr };
@@ -43,6 +52,7 @@ private:
     QTableWidget* empty_ { nullptr };
 
     std::unordered_map<cuuidpp::uuid, QTableWidget*> tables_ { };
+    std::unordered_map<cuuidpp::uuid, QTableWidgetItem*> page_items_ { };
 };
 
 }

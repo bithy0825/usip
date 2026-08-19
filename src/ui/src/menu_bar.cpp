@@ -60,6 +60,8 @@ void menu_bar::setup_ui()
 
     auto help_menu = addMenu(tr("&Help"));
     about_ = help_menu->addAction(reg.icon("about").value_or(QIcon { }), tr("&About"));
+
+    update_recent_menu(); // 启动即从 config 恢复最近文件,而非等到首次打开
 }
 
 void menu_bar::setup_subscriptions()

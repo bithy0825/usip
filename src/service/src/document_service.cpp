@@ -1,6 +1,7 @@
 #include "document_service.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 
 #include <hwy/highway.h>
@@ -47,7 +48,7 @@ namespace {
         return std::nullopt;
     }
 
-    // ─── 直方图统计(仅本文件使用:建页时给首页算,其余页切换时再算)────────────
+    // ─── 直方图统计(仅本文件使用:加载时全部页即算,index_dock 与显示共用)───
     // 值域(min/max)走 SIMD 归约;bin 装箱依赖离散写,Highway 无 scatter,
     // 逐 lane 部分表收益不抵开销,故装箱保持标量。u16 的 bin = 值 >> 8,
     // 值域仍为原始 16 位域(供显示管线 16→8 归一化)。
@@ -163,7 +164,7 @@ namespace {
     [[nodiscard]] auto compute_histogram(const QImage& img) -> common::histogram
     {
         common::histogram hist;
-        if (img.isNull())
+        if (img.isNull()) [[unlikely]]
             return hist;
 
         const auto w = static_cast<std::size_t>(img.width());
@@ -195,14 +196,14 @@ namespace {
             hist.channels = rgb ? 3 : 4;
             hist.bins.assign(
                 static_cast<std::size_t>(hist.channels) * common::histogram::bin_count, 0);
-            std::uint8_t lo[4] = { 255, 255, 255, 255 };
-            std::uint8_t hi[4] = { 0, 0, 0, 0 };
+            std::array<std::uint8_t, 4> lo { 255, 255, 255, 255 };
+            std::array<std::uint8_t, 4> hi { 0, 0, 0, 0 };
             for (int y = 0; y < img.height(); ++y) {
                 const auto* row = img.constScanLine(y);
                 if (rgb)
-                    hist_row_u8_nch<3>(row, w, hist.bins.data(), lo, hi);
+                    hist_row_u8_nch<3>(row, w, hist.bins.data(), lo.data(), hi.data());
                 else
-                    hist_row_u8_nch<4>(row, w, hist.bins.data(), lo, hi);
+                    hist_row_u8_nch<4>(row, w, hist.bins.data(), lo.data(), hi.data());
             }
             for (std::uint16_t c = 0; c < hist.channels; ++c) {
                 hist.range_min.push_back(lo[c]);
@@ -231,6 +232,51 @@ document_service::~document_service() = default;
 void document_service::setup_subscriptions()
 {
     bus_.on<core::event::file_selected>().call(*this, &document_service::on_file_selected);
+    bus_.on<core::event::document_switch_requested>()
+        .call(*this, &document_service::on_document_switch_requested);
+    bus_.on<core::event::page_switch_requested>()
+        .call(*this, &document_service::on_page_switch_requested);
+}
+
+void document_service::on_document_switch_requested(const cbuspp::value<cuuidpp::uuid>& value)
+{
+    const auto it = docs_.find(*value);
+    if (it == docs_.end()) [[unlikely]] {
+        common::log_warn("switch requested for unknown document: '{}'", value->to_string());
+        return;
+    }
+
+    // 非拥有别名:实体由 docs_ 持有
+    std::shared_ptr<core::document> doc_alias { &it->second, [](core::document*) { } };
+    bus_.post<core::event::document_switch>(
+            cbuspp::value<std::shared_ptr<core::document>> { doc_alias })
+        .with_trace_id(core::event::trace_id::document_service)
+        .sync();
+}
+
+void document_service::on_page_switch_requested(const cbuspp::value<cuuidpp::uuid>& value)
+{
+    const auto pg_it = pages_.find(*value);
+    if (pg_it == pages_.end()) [[unlikely]] {
+        common::log_warn("page switch requested for unknown page: '{}'", value->to_string());
+        return;
+    }
+
+    const auto doc_it = docs_.find(pg_it->second.doc_id);
+    if (doc_it == docs_.end()) [[unlikely]] {
+        common::log_warn("page switch requested for orphan page: '{}'", value->to_string());
+        return;
+    }
+
+    doc_it->second.active_page = *value;
+
+    // 复用 document_switch:画布按新 active_page 重解析、清层缓存并重新适配;
+    // index_dock 同步行选择(信号阻断,不回发请求)
+    std::shared_ptr<core::document> doc_alias { &doc_it->second, [](core::document*) { } };
+    bus_.post<core::event::document_switch>(
+            cbuspp::value<std::shared_ptr<core::document>> { doc_alias })
+        .with_trace_id(core::event::trace_id::document_service)
+        .sync();
 }
 
 void document_service::on_file_selected(const cbuspp::value<std::filesystem::path>& value)
@@ -255,7 +301,7 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
     };
 
     auto loaded = io::load_tiff(path);
-    if (!loaded) {
+    if (!loaded) [[unlikely]] {
         auto err = loaded.error();
         common::log_error("failed to load '{}': {}", path.string(), err);
         post_error(err);
@@ -276,7 +322,7 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
     std::size_t offset = 0;
     for (const auto& [i, pinfo] : doc.info.pages | std::views::enumerate) {
         const auto format = qimage_format(pinfo.klass, pinfo.format);
-        if (!format) {
+        if (!format) [[unlikely]] {
             auto err = common::error::make(common::errc::unsupported,
                 "page {} has no native QImage format (klass {}, format {})", i,
                 std::to_underlying(pinfo.klass), std::to_underlying(pinfo.format));
@@ -286,7 +332,7 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
         }
 
         const auto slice_end = offset + pinfo.byte_size();
-        if (slice_end > pixels->size()) { // io 不变式:拼接缓冲恰好覆盖全部页
+        if (slice_end > pixels->size()) [[unlikely]] { // io 不变式:拼接缓冲恰好覆盖全部页
             auto err = common::error::make(common::errc::internal,
                 "page {} pixel slice overflows buffer ({} > {})", i, slice_end,
                 pixels->size());
@@ -311,13 +357,13 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
             new std::shared_ptr<std::vector<std::byte>> { pixels }
         };
 
-        // 首页(active_page 默认 index 0)立刻渲染:直方图与全有效 mask 创建时
-        // 即算;其余页惰性 —— 待切换到时再补
-        if (i == 0) {
-            if (auto hist = compute_histogram(pg.image); hist.channels != 0)
-                pg.info.hist = std::move(hist);
+        // 直方图:全部页加载时即算(index_dock 页统计与 16 位显示归一化共用)
+        if (auto hist = compute_histogram(pg.image); hist.channels != 0) [[likely]]
+            pg.info.hist = std::move(hist);
 
-            // 初始 mask:阈值 [0,255] 恒全部有效 → 全白(与原始页同尺寸同朝向)
+        // 初始 mask:仅首页(active_page 默认 index 0)建全有效初值;其余页
+        // 惰性,阈值事件首次触达时补(canvas 回调里 emplace)
+        if (i == 0) {
             auto& m = pg.mask.emplace();
             m.image = QImage { static_cast<int>(pinfo.width),
                 static_cast<int>(pinfo.height), QImage::Format_Grayscale8 };
@@ -335,7 +381,7 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
         doc.pages.emplace(page_id, std::shared_ptr<core::page> { &slot, [](core::page*) { } });
     }
 
-    if (!doc.info.pages.empty())
+    if (!doc.info.pages.empty()) [[likely]]
         doc.active_page = doc.info.pages.front().id; // 默认当前页 = index 0
 
     const auto doc_id = doc.info.id;

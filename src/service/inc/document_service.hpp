@@ -29,6 +29,8 @@ public:
 private:
     void setup_subscriptions();
     void on_file_selected(const cbuspp::value<std::filesystem::path>& value);
+    void on_document_switch_requested(const cbuspp::value<cuuidpp::uuid>& value);
+    void on_page_switch_requested(const cbuspp::value<cuuidpp::uuid>& value);
 
     cbuspp::bus<common::executor>& bus_;
     common::executor& executor_;

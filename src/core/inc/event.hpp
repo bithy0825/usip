@@ -30,6 +30,9 @@ namespace event {
 
     CBUSPP_EVENT(document_ready, "document.ready", std::shared_ptr<document>);
     CBUSPP_EVENT(document_switch, "document.switch", std::shared_ptr<document>);
+    CBUSPP_EVENT(document_switch_requested, "document.switch_requested", cuuidpp::uuid);
+    CBUSPP_EVENT(page_switch_requested, "page.switch_requested", cuuidpp::uuid);
+    CBUSPP_EVENT(page_rois_changed, "page.rois_changed", std::shared_ptr<page>);
 
     CBUSPP_EVENT(rectangle_draw_requested, "rectangle_draw_requested", void);
     CBUSPP_EVENT(ellipse_draw_requested, "ellipse_draw_requested", void);
