@@ -4,7 +4,7 @@
 # 动态理由:官方安装包仅提供动态库;静态 Qt 需自行编译且有 LGPL 合规负担。
 #
 # 提供:
-#   3rdparty::qt6   INTERFACE 包装(Core/Gui/Widgets/OpenGLWidgets/Svg)
+#   3rdparty::qt6   INTERFACE 包装(Core/Gui/Widgets/OpenGLWidgets/Svg/Charts)
 #
 # 全局属性(供 usip-deploy.cmake / usip-install.cmake 使用):
 #   USIP_QT_BIN_DIR / USIP_QT_PLUGINS_DIR
@@ -37,6 +37,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Widgets
     OpenGLWidgets
     Svg
+    Charts
 )
 
 # Qt 6.3+:统一开启 AUTOMOC/AUTOUIC/AUTORCC 等工程约定
@@ -50,6 +51,7 @@ if(NOT TARGET 3rdparty_qt6)
         Qt6::Widgets
         Qt6::OpenGLWidgets
         Qt6::Svg
+        Qt6::Charts
     )
     target_compile_definitions(3rdparty_qt6 INTERFACE QT_NO_EMIT)
     add_library(3rdparty::qt6 ALIAS 3rdparty_qt6)
