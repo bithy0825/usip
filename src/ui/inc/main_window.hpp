@@ -13,6 +13,8 @@ class side_tool_bar;
 class index_dock;
 class hist_dock;
 class info_dock;
+class canvas;
+class status_bar;
 
 class main_window : public ui_protocol<main_window, QMainWindow> {
     Q_OBJECT
@@ -39,6 +41,8 @@ private:
     index_dock* index_dock_ { nullptr };
     hist_dock* hist_dock_ { nullptr };
     info_dock* info_dock_ { nullptr };
+    canvas* canvas_ { nullptr };
+    status_bar* status_bar_ { nullptr };
 };
 
 }

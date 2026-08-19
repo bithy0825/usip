@@ -30,6 +30,7 @@ target_link_libraries(usip_service
         3rdparty::qt6
     PRIVATE
         usip::io # 仅 document_service.cpp 调用 load_tiff,不外泄到本层头文件
+        3rdparty::highway # document_service 直方图统计内核(实现细节,不入接口)
 )
 
 # PCH 组合:标准库 + 通用第三方(不引入 Qt,保持依赖卫生)

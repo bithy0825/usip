@@ -284,7 +284,7 @@ void mask_options::setup_connections()
         bus_.post<core::event::mask_ceiling_changed>(cbuspp::value<double>(value)).sync();
     });
     connect(opacity_, &QSlider::valueChanged, this, [this, reg](int value) {
-        bus_.post<core::event::render_options_changed>().sync();
+        bus_.post<core::event::mask_opacity_changed>(cbuspp::value<double>(value / 100.0)).sync();
         [[maybe_unused]] auto res = reg->set<double>("mask.opacity", value / 100.0);
     });
 

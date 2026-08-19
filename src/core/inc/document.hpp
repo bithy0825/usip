@@ -44,7 +44,9 @@ struct page {
     // 原始数据(设备规则已应用;zero_is_white/orient 不碰像素,归显示管线)
     QImage image { };
 
-    mask mask { }; // 阈值分割蒙版(8-bit 灰度,0=黑,255=白)
+    // 阈值分割蒙版:惰性初始化(首页创建时给全有效;其余页切换到时再补),
+    // 未初始化 = 无 mask
+    std::optional<mask> mask { };
 
     std::vector<roi> rois { };
     std::vector<annotation> annotations { };

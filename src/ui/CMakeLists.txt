@@ -14,7 +14,7 @@ target_sources(usip_ui
         src/hist_dock.cpp
         src/QRangeSlider.cpp
         src/canvas.cpp
-        src/pipeline.cpp
+        src/draw.cpp
         src/status_bar.cpp
     PUBLIC
         FILE_SET HEADERS
@@ -32,7 +32,7 @@ target_sources(usip_ui
             inc/hist_dock.hpp
             inc/QRangeSlider.hpp
             inc/canvas.hpp
-            inc/pipeline.hpp
+            inc/draw.hpp
             inc/status_bar.hpp
 )
 
@@ -57,6 +57,8 @@ target_link_libraries(usip_ui
         usip::common
         usip::core
         3rdparty::qt6
+    PRIVATE
+        3rdparty::magic_enum # colormap 按钮的枚举遍历(实现细节,不入接口)
 )
 
 # PCH 组合:标准库 + 通用第三方(不引入 Qt,保持依赖卫生)

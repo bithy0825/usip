@@ -1,13 +1,15 @@
 #include "main_window.hpp"
+#include "canvas.hpp"
+#include "hist_dock.hpp"
 #include "icon_registry.hpp"
 #include "index_dock.hpp"
-#include "hist_dock.hpp"
+#include "info_dock.hpp"
 #include "logger.hpp"
 #include "menu_bar.hpp"
 #include "options_tool_bar.hpp"
 #include "side_tool_bar.hpp"
+#include "status_bar.hpp"
 #include "top_tool_bar.hpp"
-#include "info_dock.hpp"
 
 namespace usip::ui {
 
@@ -27,6 +29,9 @@ void main_window::setup_ui()
     if (auto r = icon_registry::instance().scan(); !r) {
         common::log_warn("icon scan failed: {}", r.error());
     }
+
+    canvas_ = new canvas(bus_, this); // 中央画布(渲染管线宿主)
+    setCentralWidget(canvas_);
 
     menu_bar_ = new menu_bar(bus_, this);
     setMenuBar(menu_bar_);
@@ -50,6 +55,9 @@ void main_window::setup_ui()
 
     hist_dock_ = new hist_dock(bus_, this);
     addDockWidget(Qt::RightDockWidgetArea, hist_dock_);
+
+    status_bar_ = new status_bar(bus_, this);
+    setStatusBar(status_bar_);
 }
 
 void main_window::setup_subscriptions() { }

@@ -1,12 +1,17 @@
 #pragma once
 
+#include <QColor>
+
 #include <cbuspp/cbuspp.hpp>
 
+#include <cstdint>
 #include <memory>
 
+#include "colormap.hpp"
 #include "document.hpp"
 #include "error.hpp"
 #include "tiff.hpp"
+#include "view_mode.hpp"
 
 namespace usip::core {
 
@@ -26,7 +31,26 @@ namespace event {
     CBUSPP_EVENT(document_ready, "document.ready", std::shared_ptr<document>);
     CBUSPP_EVENT(document_switch, "document.switch", std::shared_ptr<document>);
 
+    CBUSPP_EVENT(rectangle_draw_requested, "rectangle_draw_requested", void);
+    CBUSPP_EVENT(ellipse_draw_requested, "ellipse_draw_requested", void);
+    CBUSPP_EVENT(polygon_draw_requested, "polygon_draw_requested", void);
     CBUSPP_EVENT(threshold_segment_requested, "threshold_segment_requested", void);
+    CBUSPP_EVENT(measure_requested, "measure_requested", void);
+    CBUSPP_EVENT(tool_result_applied, "tool_result.applied", void);
+    CBUSPP_EVENT(tool_result_canceled, "tool_result.canceled", void);
+
+    CBUSPP_EVENT(pseudocolor_colormap_changed, "pseudocolor_colormap.changed", colormap_type);
+    CBUSPP_EVENT(pseudocolor_zero_is_black_toggled, "pseudocolor_zero_is_black.toggled", bool);
+    CBUSPP_EVENT(pseudocolor_enabled_toggled, "pseudocolor_enabled.toggled", bool);
+
+    CBUSPP_EVENT(mask_color_changed, "mask_color.changed", QColor);
+    CBUSPP_EVENT(mask_opacity_changed, "mask_opacity.changed", double);
+    CBUSPP_EVENT(mask_visible_toggled, "mask_visible.toggled", bool);
+    CBUSPP_EVENT(mask_floor_changed, "mask_floor.changed", double);
+    CBUSPP_EVENT(mask_ceiling_changed, "mask_ceiling.changed", double);
+
+    CBUSPP_EVENT(measure_line_width_changed, "measure_line_width.changed", int);
+    CBUSPP_EVENT(measure_line_color_changed, "measure_line_color.changed", QColor);
 
     CBUSPP_EVENT(error_occurred, "error.occurred", common::error&);
 }

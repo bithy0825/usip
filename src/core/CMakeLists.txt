@@ -20,6 +20,7 @@ target_sources(usip_core
             inc/event.hpp
             inc/document.hpp
             inc/colormap.hpp
+            inc/view_mode.hpp
 )
 
 target_include_directories(usip_core

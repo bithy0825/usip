@@ -72,6 +72,24 @@ void menu_bar::setup_connections()
     connect(open_, &QAction::triggered, this, [this]() {
         bus_.post<core::event::file_open_requested>().sync();
     });
+
+    // 视图开关 → 细粒度渲染事件(画布订阅;已注册的键顺手持久化)
+    connect(pseudocolor_, &QAction::triggered, this, [this](bool checked) {
+        bus_.post<core::event::pseudocolor_enabled_toggled>(cbuspp::value<bool> { checked })
+            .sync();
+    });
+    connect(mask_, &QAction::triggered, this, [this](bool checked) {
+        bus_.post<core::event::mask_visible_toggled>(cbuspp::value<bool> { checked }).sync();
+    });
+    connect(zero_is_black_, &QAction::triggered, this, [this](bool checked) {
+        bus_.post<core::event::pseudocolor_zero_is_black_toggled>(
+            cbuspp::value<bool> { checked })
+            .sync();
+        if (auto r = core::config::global()->set<bool>("pseudocolor.zero_is_black", checked);
+            !r) {
+            common::log_warn("set pseudocolor.zero_is_black failed: {}", r.error());
+        }
+    });
 }
 
 void menu_bar::on_file_selected(const cbuspp::value<std::filesystem::path>& path)
