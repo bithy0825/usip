@@ -75,7 +75,8 @@ void canvas::setup_subscriptions()
 {
     bus_.on<core::event::document_ready>().call(*this, &canvas::on_document_ready);
     bus_.on<core::event::document_switch>().call(*this, &canvas::on_document_switch);
-    bus_.on<core::event::view_mode_changed>().call(*this, &canvas::on_view_mode_changed);
+    bus_.on<core::event::view_mode_change_requested>()
+        .call(*this, &canvas::on_view_mode_change_requested);
     bus_.on<core::event::compare_page_selected>()
         .call(*this, &canvas::on_compare_page_selected);
     bus_.on<core::event::pseudocolor_enabled_toggled>()
@@ -171,17 +172,17 @@ void canvas::on_document_switch(
     update();
 }
 
-void canvas::on_view_mode_changed(const cbuspp::value<core::view_mode>& value)
+void canvas::on_view_mode_change_requested(const cbuspp::value<core::view_mode>& value)
 {
     const auto mode = *value;
     if (mode == options_.mode)
-        return;
+        return; // 同值请求:无状态变化(勾选本就在位)
 
-    // 进对比模式前:须存在已校验的对比页(未设弹对话框;取消/失败 → 保持 single);
-    // 无文档时先收下选择,待 document_ready/switch 的补校验弹对话框(取消则回退 single)
+    // 进对比模式前:须存在已校验的对比页(未设弹对话框);
+    // 取消/失败 → 不下发新模式,仅以下发"当前模式"覆写工具栏的乐观勾选
     if (mode != core::view_mode::single && !page_.expired() && !ensure_compare_page()) {
         bus_.post<core::event::view_mode_changed>(
-            cbuspp::value<core::view_mode> { core::view_mode::single })
+            cbuspp::value<core::view_mode> { options_.mode })
             .sync();
         return;
     }
@@ -193,6 +194,10 @@ void canvas::on_view_mode_changed(const cbuspp::value<core::view_mode>& value)
     slider_->setVisible(mode == core::view_mode::slider);
     l2_img_ = { }; // 运算层内容随模式变
     view_dirty_ = true; // 视口定义变(整视口 ↔ 半区),重新适配
+    // 状态下发:勾选态/模式轴/对比页输入统一随此(请求事件仅本类订阅,无重入覆盖)
+    bus_.post<core::event::view_mode_changed>(
+        cbuspp::value<core::view_mode> { options_.mode })
+        .sync();
     update();
 }
 
@@ -305,11 +310,20 @@ void canvas::on_threshold_segment_requested()
         return;
     }
 
+    // 会话排他:任一工具运行中不得开新工具(按钮回落)
+    if (threshold_tool_.active() || annotation_tool_.active()) {
+        auto err = common::error::make(common::errc::unavailable,
+            "another tool session is active");
+        post_error(err);
+        bus_.post<core::event::tool_result_canceled>().sync();
+        return;
+    }
+
     // slider/highlight/difference 禁用 mask 工具
     if (options_.mode != core::view_mode::single && options_.mode != core::view_mode::split) {
         auto err = common::error::make(common::errc::validation_failed,
             "threshold segmentation is disabled in this view mode");
-        bus_.post<core::event::error_occurred>(cbuspp::value<common::error&> { err }).sync();
+        post_error(err);
         bus_.post<core::event::tool_result_canceled>().sync(); // 侧边栏按钮回落
         return;
     }
@@ -355,31 +369,31 @@ void canvas::on_tool_result_applied()
         }
         l6_img_ = { };
         l6c_img_ = { };
-        update();
-        return;
+    } else if (annotation_tool_.active()) {
+        if (auto r = annotation_tool_.apply(); r) {
+            if (const auto page = page_.lock()) {
+                // 落盘时盖所属文档当前 step 快照(权威值;与工具内快照一致,防漂移)
+                if (const auto doc = doc_.lock())
+                    for (auto& a : r->annotations)
+                        a.step = doc->step;
+                // 对比模式:同值双写(L5 的"完全相同"过滤天然成立);single 只写主页
+                if (options_.mode != core::view_mode::single) {
+                    if (const auto compare = compare_page_.lock())
+                        compare->annotations.insert(compare->annotations.end(),
+                            r->annotations.begin(), r->annotations.end());
+                }
+                page->annotations.insert(page->annotations.end(),
+                    std::make_move_iterator(r->annotations.begin()),
+                    std::make_move_iterator(r->annotations.end()));
+            } // 页已失效:结果丢弃
+        }
+        annot_dragging_ = false;
     }
 
-    if (!annotation_tool_.active()) // 无任何会话
-        return;
-
-    if (auto r = annotation_tool_.apply(); r) {
-        if (const auto page = page_.lock()) {
-            // 落盘时盖所属文档当前 step 快照(权威值;与工具内快照一致,防漂移)
-            if (const auto doc = doc_.lock())
-                for (auto& a : r->annotations)
-                    a.step = doc->step;
-            // 对比模式:同值双写(L5 的"完全相同"过滤天然成立);single 只写主页
-            if (options_.mode != core::view_mode::single) {
-                if (const auto compare = compare_page_.lock())
-                    compare->annotations.insert(compare->annotations.end(),
-                        r->annotations.begin(), r->annotations.end());
-            }
-            page->annotations.insert(page->annotations.end(),
-                std::make_move_iterator(r->annotations.begin()),
-                std::make_move_iterator(r->annotations.end()));
-        } // 页已失效:结果丢弃
-    }
-    annot_dragging_ = false;
+    // 统一出口:apply 已处理(含无会话的误触)→ 广播"会话结束 + 当前模式"
+    bus_.post<core::event::tool_session_ended>(
+        cbuspp::value<core::view_mode> { options_.mode })
+        .sync();
     update();
 }
 
@@ -389,14 +403,16 @@ void canvas::on_tool_result_canceled()
         threshold_tool_.cancel();
         l6_img_ = { };
         l6c_img_ = { };
-        update();
-        return;
-    }
-    if (annotation_tool_.active()) {
+    } else if (annotation_tool_.active()) {
         annotation_tool_.cancel();
         annot_dragging_ = false;
-        update();
     }
+
+    // 统一出口:cancel 已处理(含拒绝路径的按钮回落)→ 广播"会话结束 + 当前模式"
+    bus_.post<core::event::tool_session_ended>(
+        cbuspp::value<core::view_mode> { options_.mode })
+        .sync();
+    update();
 }
 
 void canvas::on_measure_requested()
@@ -407,6 +423,16 @@ void canvas::on_measure_requested()
         bus_.post<core::event::tool_result_canceled>().sync();
         return;
     }
+
+    // 会话排他:任一工具运行中不得开新工具(按钮回落)
+    if (threshold_tool_.active() || annotation_tool_.active()) {
+        auto err = common::error::make(common::errc::unavailable,
+            "another tool session is active");
+        post_error(err);
+        bus_.post<core::event::tool_result_canceled>().sync();
+        return;
+    }
+
     if (auto started = annotation_tool_.exec(doc->step); !started) {
         bus_.post<core::event::error_occurred>(
             cbuspp::value<common::error&> { started.error() })
@@ -475,6 +501,11 @@ void canvas::on_measurements_clear_requested()
 
 // ─── 页解析与校验 ─────────────────────────────────────────────────────────────
 
+void canvas::post_error(common::error& err)
+{
+    bus_.post<core::event::error_occurred>(cbuspp::value<common::error&> { err }).sync();
+}
+
 void canvas::resolve_pages()
 {
     page_.reset();
@@ -506,6 +537,9 @@ auto canvas::ensure_compare_page() -> bool
         if (!ok)
             return false;
         page->compare_to = doc->info.pages[static_cast<std::size_t>(n)].id;
+        // 对话框路径同样走事件:options_tool_bar 经订阅回显输入框
+        // (画布自身订阅幂等:同值重写 + 同态清理,无递归)
+        bus_.post<core::event::compare_page_selected>(cbuspp::value<int> { n }).sync();
     }
     return validate_compare();
 }
@@ -519,22 +553,18 @@ auto canvas::validate_compare() -> bool
     if (!page || !doc || !page->compare_to)
         return false;
 
-    const auto post_err = [this](common::error& err) {
-        bus_.post<core::event::error_occurred>(cbuspp::value<common::error&> { err }).sync();
-    };
-
     const auto it = doc->pages.find(*page->compare_to);
     if (it == doc->pages.end()) {
         auto err = common::error::make(common::errc::not_found,
             "compare page not found in document");
-        post_err(err);
+        post_error(err);
         return false;
     }
     if (it->second->image.size() != page->image.size()) { // 主副必须同尺寸
         auto err = common::error::make(common::errc::validation_failed,
             "compare page size mismatch: {}x{} vs {}x{}", page->image.width(),
             page->image.height(), it->second->image.width(), it->second->image.height());
-        post_err(err);
+        post_error(err);
         return false;
     }
     compare_page_ = it->second;

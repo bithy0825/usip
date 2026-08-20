@@ -42,10 +42,23 @@ void info_dock::setup_ui()
 
 void info_dock::setup_subscriptions()
 {
+    // 工具会话:开启禁用(观察者:订阅原始 request 自推导),结束经 canvas 广播解禁
+    bus_.on<core::event::threshold_segment_requested>()
+        .call(*this, &info_dock::on_tool_session_started);
+    bus_.on<core::event::measure_requested>().call(*this, &info_dock::on_tool_session_started);
+    bus_.on<core::event::tool_session_ended>().call(*this, &info_dock::on_tool_session_ended);
 }
 
-void info_dock::setup_connections()
+void info_dock::setup_connections() { }
+
+void info_dock::on_tool_session_started()
 {
+    setEnabled(false); // 会话期禁用(含后续功能)
+}
+
+void info_dock::on_tool_session_ended(const cbuspp::value<core::view_mode>&)
+{
+    setEnabled(true);
 }
 
 QTableWidget* info_dock::make_table(QWidget* parent)

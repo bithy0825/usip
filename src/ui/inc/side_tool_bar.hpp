@@ -3,6 +3,7 @@
 #include <QToolBar>
 
 #include "ui_protocol.hpp"
+#include "view_mode.hpp"
 
 namespace usip::ui {
 
@@ -24,12 +25,17 @@ private:
     void setup_subscriptions();
     void setup_connections();
 
-    // 阈值会话开启:禁用其余工具按钮(阈值按钮保持可点,再点即取消)
+    // 工具会话开启:会话排他(其余工具禁用)
     void on_threshold_segment_requested();
-    // 标注会话开启:同上禁用其余工具按钮
     void on_measure_requested();
-    // 工具会话结束(apply/canceled 广播):解禁 + 回落勾选(阻断,不回发事件)
-    void on_tool_session_ended();
+    // 会话结束(canvas 广播,携带模式):解禁 + 回落勾选(阻断,不回发事件)
+    void on_tool_session_ended(const cbuspp::value<core::view_mode>& value);
+    // 模式互斥:对比三模式禁用阈值分割(本地状态,随模式事件推导)
+    void on_view_mode_changed(const cbuspp::value<core::view_mode>& value);
+
+    // 双轴推导启用面:会话排他(其余工具禁)+ 模式互斥(对比三模式禁阈值);
+    // 当前勾选的工具保持可点(再点即取消)
+    void refresh_enables();
 
 private:
     QAction* rectangle_ { nullptr };
@@ -38,6 +44,9 @@ private:
 
     QAction* threshold_seg_ { nullptr };
     QAction* measure_ { nullptr };
+
+    core::view_mode mode_ { core::view_mode::single }; // 模式轴(随 view_mode_changed)
+    bool session_active_ { false }; // 会话轴(随 request/ended)
 };
 
 }

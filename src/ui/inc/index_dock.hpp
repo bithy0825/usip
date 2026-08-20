@@ -37,6 +37,9 @@ private:
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_page_rois_changed(const cbuspp::value<std::shared_ptr<core::page>>& value);
+    // 工具会话开启(任一):禁用(doc/step/页切换全在其中);结束(canvas 广播):解禁
+    void on_tool_session_started();
+    void on_tool_session_ended(const cbuspp::value<core::view_mode>& value);
 
 private:
     QTableWidget* make_table(QWidget* parent);

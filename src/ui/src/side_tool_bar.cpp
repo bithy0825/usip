@@ -55,10 +55,9 @@ void side_tool_bar::setup_subscriptions()
     bus_.on<core::event::threshold_segment_requested>()
         .call(*this, &side_tool_bar::on_threshold_segment_requested);
     bus_.on<core::event::measure_requested>().call(*this, &side_tool_bar::on_measure_requested);
-    // 工具会话结束 → 解禁 + 按钮回落(取消勾选阻断,不回发 canceled)
-    bus_.on<core::event::tool_result_applied>().call(*this, &side_tool_bar::on_tool_session_ended);
-    bus_.on<core::event::tool_result_canceled>()
-        .call(*this, &side_tool_bar::on_tool_session_ended);
+    // 会话结束经 canvas 统一广播(携带模式;不直接订阅 apply/canceled)
+    bus_.on<core::event::tool_session_ended>().call(*this, &side_tool_bar::on_tool_session_ended);
+    bus_.on<core::event::view_mode_changed>().call(*this, &side_tool_bar::on_view_mode_changed);
 }
 
 void side_tool_bar::setup_connections()
@@ -89,25 +88,48 @@ void side_tool_bar::setup_connections()
 
 void side_tool_bar::on_threshold_segment_requested()
 {
-    for (auto* action : { rectangle_, ellipse_, polygon_, measure_ })
-        action->setEnabled(false);
+    session_active_ = true;
+    refresh_enables();
 }
 
 void side_tool_bar::on_measure_requested()
 {
-    for (auto* action : { rectangle_, ellipse_, polygon_, threshold_seg_ })
-        action->setEnabled(false);
+    session_active_ = true;
+    refresh_enables();
 }
 
-void side_tool_bar::on_tool_session_ended()
+void side_tool_bar::on_tool_session_ended(const cbuspp::value<core::view_mode>& value)
 {
-    for (auto* action : { rectangle_, ellipse_, polygon_, threshold_seg_, measure_ })
-        action->setEnabled(true);
-    if (!threshold_seg_->isChecked() && !measure_->isChecked())
-        return;
-    const QSignalBlocker t(threshold_seg_), m(measure_);
-    threshold_seg_->setChecked(false);
-    measure_->setChecked(false);
+    session_active_ = false;
+    mode_ = *value;
+    if (threshold_seg_->isChecked() || measure_->isChecked()) {
+        const QSignalBlocker t(threshold_seg_), m(measure_);
+        threshold_seg_->setChecked(false); // 按钮回落(阻断,不回发 canceled)
+        measure_->setChecked(false);
+    }
+    refresh_enables();
+}
+
+void side_tool_bar::on_view_mode_changed(const cbuspp::value<core::view_mode>& value)
+{
+    mode_ = *value;
+    refresh_enables();
+}
+
+void side_tool_bar::refresh_enables()
+{
+    // 双轴推导:会话排他(其余工具禁)+ 模式互斥(对比三模式禁阈值)
+    const bool threshold_mode_ok
+        = mode_ == core::view_mode::single || mode_ == core::view_mode::split;
+    rectangle_->setEnabled(!session_active_);
+    ellipse_->setEnabled(!session_active_);
+    polygon_->setEnabled(!session_active_);
+    measure_->setEnabled(!session_active_);
+    threshold_seg_->setEnabled(!session_active_ && threshold_mode_ok);
+    if (threshold_seg_->isChecked()) // 当前工具保持可点(再点即取消)
+        threshold_seg_->setEnabled(true);
+    if (measure_->isChecked())
+        measure_->setEnabled(true);
 }
 
 } // namespace usip::ui

@@ -37,8 +37,11 @@ namespace event {
     CBUSPP_EVENT(page_switch_requested, "page.switch_requested", cuuidpp::uuid);
     CBUSPP_EVENT(page_rois_changed, "page.rois_changed", std::shared_ptr<page>);
 
-    // 视图模式切换(携带目标模式);对比页选择(0 起页序)
+    // 视图模式:requested = 切换意图(仅 canvas 订阅并裁决);
+    // changed = canvas 裁决后的状态下发(工具栏勾选/侧边栏模式轴/对比页输入随此)
+    CBUSPP_EVENT(view_mode_change_requested, "view_mode.change_requested", view_mode);
     CBUSPP_EVENT(view_mode_changed, "view_mode.changed", view_mode);
+    // 对比页选择(0 起页序)
     CBUSPP_EVENT(compare_page_selected, "compare_page.selected", int);
 
     CBUSPP_EVENT(rectangle_draw_requested, "rectangle_draw_requested", void);
@@ -48,6 +51,10 @@ namespace event {
     CBUSPP_EVENT(measure_requested, "measure_requested", void);
     CBUSPP_EVENT(tool_result_applied, "tool_result.applied", void);
     CBUSPP_EVENT(tool_result_canceled, "tool_result.canceled", void);
+
+    // 工具会话结束(canvas 处理完 apply/cancel 后统一广播,含拒绝路径的回落;
+    // 携带当前视图模式,各模块据模式自行推导解禁面 —— 如对比三模式下阈值分割保持禁用)
+    CBUSPP_EVENT(tool_session_ended, "tool_session.ended", view_mode);
 
     CBUSPP_EVENT(pseudocolor_colormap_changed, "pseudocolor_colormap.changed", colormap_type);
     CBUSPP_EVENT(pseudocolor_zero_is_black_toggled, "pseudocolor_zero_is_black.toggled", bool);

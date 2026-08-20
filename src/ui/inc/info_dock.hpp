@@ -1,9 +1,13 @@
 #pragma once
 
 #include <QDockWidget>
-#include <cuuidpp/cuuidpp.hpp>
+
+#include <cstdint>
 #include <unordered_map>
 
+#include <cuuidpp/cuuidpp.hpp>
+
+#include "event.hpp"
 #include "ui_protocol.hpp"
 
 class QStackedWidget;
@@ -29,6 +33,10 @@ private:
     void setup_ui();
     void setup_subscriptions();
     void setup_connections();
+
+    // 工具会话开启(任一):禁用(含后续功能);结束(canvas 广播):解禁
+    void on_tool_session_started();
+    void on_tool_session_ended(const cbuspp::value<core::view_mode>& value);
 
 private:
     QTableWidget* make_table(QWidget* parent);

@@ -76,7 +76,7 @@ private:
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
     // 模式与对比页
-    void on_view_mode_changed(const cbuspp::value<core::view_mode>& value);
+    void on_view_mode_change_requested(const cbuspp::value<core::view_mode>& value);
     void on_compare_page_selected(const cbuspp::value<int>& value); // 0 起页序
     // L1 伪彩
     void on_pseudocolor_enabled_toggled(const cbuspp::value<bool>& value);
@@ -106,6 +106,10 @@ private:
 
     // doc_ → page_(active_page)与 compare_page_(compare_to);无则置空
     void resolve_pages();
+    // document_ready/switch 统一入口(空载荷内挡)
+    void handle_document(const std::shared_ptr<core::document>& doc);
+    // error_occurred 统一出口
+    void post_error(common::error& err);
     // 进对比模式前:无 compare_to 弹对话框选页(确认才写入 page);再校验尺寸
     // (不一致发 error_occurred)。成功 → compare_page_ 就绪
     [[nodiscard]] auto ensure_compare_page() -> bool;

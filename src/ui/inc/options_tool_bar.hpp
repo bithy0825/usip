@@ -58,11 +58,14 @@ private:
     void on_polygon_draw_requested();
     void on_threshold_segment_requested();
     void on_measure_requested();
-    void on_tool_session_ended();
+    // 会话结束(canvas 广播,携带模式):解除会话期禁用
+    void on_tool_session_ended(const cbuspp::value<core::view_mode>& value);
 
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_view_mode_changed(const cbuspp::value<core::view_mode>& value);
+    // 对比页外部变更(对话框路径经 canvas 广播):回显输入框(阻断,不回发)
+    void on_compare_page_selected(const cbuspp::value<int>& value);
 
     void sync_page_control(const std::shared_ptr<core::document>& doc);
 

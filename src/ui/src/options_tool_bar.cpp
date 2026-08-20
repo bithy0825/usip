@@ -146,10 +146,10 @@ void options_tool_bar::setup_subscriptions()
     bus_.on<core::event::document_ready>().call(this, &options_tool_bar::on_document_ready);
     bus_.on<core::event::document_switch>().call(this, &options_tool_bar::on_document_switch);
     bus_.on<core::event::view_mode_changed>().call(this, &options_tool_bar::on_view_mode_changed);
-    bus_.on<core::event::tool_result_applied>()
-        .call(this, &options_tool_bar::on_tool_session_ended);
-    bus_.on<core::event::tool_result_canceled>()
-        .call(this, &options_tool_bar::on_tool_session_ended);
+    bus_.on<core::event::compare_page_selected>()
+        .call(this, &options_tool_bar::on_compare_page_selected);
+    // 会话结束经 canvas 统一广播(不直接订阅 apply/canceled)
+    bus_.on<core::event::tool_session_ended>().call(this, &options_tool_bar::on_tool_session_ended);
 }
 
 void options_tool_bar::setup_connections()
@@ -161,9 +161,10 @@ void options_tool_bar::setup_connections()
         bus_.post<core::event::tool_result_canceled>().sync();
     });
 
-    // 视图模式组 → 细粒度事件(取消/校验失败由画布回发 single,经订阅回同步勾选)
+    // 视图模式组 → 切换请求(canvas 裁决后经 view_mode_changed 状态下发,
+    // 取消/校验失败同渠道回退,勾选态只随状态事件)
     connect(view_group_, &QActionGroup::triggered, this, [this](QAction* action) {
-        bus_.post<core::event::view_mode_changed>(
+        bus_.post<core::event::view_mode_change_requested>(
                 cbuspp::value<core::view_mode> {
                     static_cast<core::view_mode>(action->data().toInt()) })
             .sync();
@@ -192,15 +193,17 @@ void options_tool_bar::on_polygon_draw_requested()
 void options_tool_bar::on_threshold_segment_requested()
 {
     options_stack_->setCurrentWidget(mask_options_);
-    // 阈值会话期间禁用与 mask 不兼容的显示模式(single↔split 仍可切换)
+    // 会话期禁用:对比页输入 + 与 mask 不兼容的显示模式(single↔split 仍可切换)
+    page_control_->setEnabled(false);
     for (auto* action : { view_slider_, view_highlight_, view_difference_ })
         action->setEnabled(false);
 }
 
-// 会话结束(成功落盘或取消):选项页复位,显示模式解禁
-void options_tool_bar::on_tool_session_ended()
+// 会话结束(canvas 广播,携带模式):选项页复位;对比页输入与显示模式按模式解禁
+void options_tool_bar::on_tool_session_ended(const cbuspp::value<core::view_mode>& value)
 {
     options_stack_->setCurrentWidget(empty_);
+    page_control_->setEnabled(*value != core::view_mode::single);
     for (auto* action : { view_slider_, view_highlight_, view_difference_ })
         action->setEnabled(true);
 }
@@ -208,6 +211,7 @@ void options_tool_bar::on_tool_session_ended()
 void options_tool_bar::on_measure_requested()
 {
     options_stack_->setCurrentWidget(measure_options_);
+    page_control_->setEnabled(false); // 会话期禁用对比页输入(标注五模式合法,模式按钮不动)
 }
 
 void options_tool_bar::on_document_ready(
@@ -244,6 +248,13 @@ void options_tool_bar::sync_page_control(const std::shared_ptr<core::document>& 
         }
     }
     page_control_->setValue(current);
+}
+
+// 对比页外部变更(对话框路径经 canvas 广播):回显输入框(阻断,不回发)
+void options_tool_bar::on_compare_page_selected(const cbuspp::value<int>& value)
+{
+    const QSignalBlocker blocker(page_control_);
+    page_control_->setValue(*value);
 }
 
 // 模式事件回同步勾选态(画布拒绝模式切换时回发 single,此处落回 None)

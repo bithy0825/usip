@@ -173,6 +173,11 @@ void index_dock::setup_subscriptions()
     bus_.on<core::event::document_ready>().call(*this, &index_dock::on_document_ready);
     bus_.on<core::event::document_switch>().call(*this, &index_dock::on_document_switch);
     bus_.on<core::event::page_rois_changed>().call(*this, &index_dock::on_page_rois_changed);
+    // 工具会话:开启禁用(观察者:订阅原始 request 自推导),结束经 canvas 广播解禁
+    bus_.on<core::event::threshold_segment_requested>()
+        .call(*this, &index_dock::on_tool_session_started);
+    bus_.on<core::event::measure_requested>().call(*this, &index_dock::on_tool_session_started);
+    bus_.on<core::event::tool_session_ended>().call(*this, &index_dock::on_tool_session_ended);
 }
 
 void index_dock::setup_connections()
@@ -247,6 +252,16 @@ void index_dock::on_page_rois_changed(const cbuspp::value<std::shared_ptr<core::
 
     if (const auto it = page_items_.find(page->info.id); it != page_items_.end() && it->second)
         it->second->setData(Qt::DisplayRole, page->rois.size());
+}
+
+void index_dock::on_tool_session_started()
+{
+    setEnabled(false); // 会话期禁用:doc 切换、step、页切换全在其中
+}
+
+void index_dock::on_tool_session_ended(const cbuspp::value<core::view_mode>&)
+{
+    setEnabled(true);
 }
 
 QTableWidget* index_dock::make_table(QWidget* parent)
