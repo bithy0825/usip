@@ -103,6 +103,7 @@ void options_tool_bar::setup_ui()
     // page_control_->setButtonSymbols(QAbstractSpinBox::NoButtons);
     page_control_->setMinimum(0);
     page_control_->setValue(0);
+    page_control_->setEnabled(false); // single 无对比方,禁用;非 single 经模式事件解禁
     addWidget(page_control_);
 
     addSeparator();
@@ -145,6 +146,10 @@ void options_tool_bar::setup_subscriptions()
     bus_.on<core::event::document_ready>().call(this, &options_tool_bar::on_document_ready);
     bus_.on<core::event::document_switch>().call(this, &options_tool_bar::on_document_switch);
     bus_.on<core::event::view_mode_changed>().call(this, &options_tool_bar::on_view_mode_changed);
+    bus_.on<core::event::tool_result_applied>()
+        .call(this, &options_tool_bar::on_tool_session_ended);
+    bus_.on<core::event::tool_result_canceled>()
+        .call(this, &options_tool_bar::on_tool_session_ended);
 }
 
 void options_tool_bar::setup_connections()
@@ -187,6 +192,17 @@ void options_tool_bar::on_polygon_draw_requested()
 void options_tool_bar::on_threshold_segment_requested()
 {
     options_stack_->setCurrentWidget(mask_options_);
+    // 阈值会话期间禁用与 mask 不兼容的显示模式(single↔split 仍可切换)
+    for (auto* action : { view_slider_, view_highlight_, view_difference_ })
+        action->setEnabled(false);
+}
+
+// 会话结束(成功落盘或取消):选项页复位,显示模式解禁
+void options_tool_bar::on_tool_session_ended()
+{
+    options_stack_->setCurrentWidget(empty_);
+    for (auto* action : { view_slider_, view_highlight_, view_difference_ })
+        action->setEnabled(true);
 }
 
 void options_tool_bar::on_measure_requested()
@@ -233,6 +249,9 @@ void options_tool_bar::sync_page_control(const std::shared_ptr<core::document>& 
 // 模式事件回同步勾选态(画布拒绝模式切换时回发 single,此处落回 None)
 void options_tool_bar::on_view_mode_changed(const cbuspp::value<core::view_mode>& value)
 {
+    // Compared Page 仅在有对比方时可用(single 禁用)
+    page_control_->setEnabled(*value != core::view_mode::single);
+
     const auto target = static_cast<int>(*value);
     for (QAction* action : view_group_->actions()) {
         if (action->data().toInt() == target) {
@@ -336,7 +355,25 @@ void mask_options::setup_ui()
     addAction(opt_tool_bar_.cancel_action());
 }
 
-void mask_options::setup_subscriptions() { }
+void mask_options::setup_subscriptions()
+{
+    // 会话建立:滑条/spinbox 阻断回显会话起始域(UI 不持有状态)
+    bus_.on<core::event::mask_range_echo>().call(*this, &mask_options::on_mask_range_echo);
+}
+
+void mask_options::on_mask_range_echo(const cbuspp::value<core::event::mask_range>& value)
+{
+    sync_range(*value);
+}
+
+void mask_options::sync_range(const std::pair<double, double>& range)
+{
+    // 阻断:回设不得触发 valueChanged 回发 mask_floor/ceiling 事件
+    const QSignalBlocker t(threshold_), f(floor_), c(ceil_);
+    threshold_->setValues(static_cast<int>(range.first), static_cast<int>(range.second));
+    floor_->setValue(static_cast<int>(range.first));
+    ceil_->setValue(static_cast<int>(range.second));
+}
 
 void mask_options::setup_connections()
 {

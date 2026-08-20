@@ -3,6 +3,7 @@ add_subdirectory(platform)
 add_subdirectory(core)
 add_subdirectory(io)
 add_subdirectory(service)
+add_subdirectory(tool)
 # add_subdirectory(renderer)  # 待添加
 add_subdirectory(ui)
 add_subdirectory(app)

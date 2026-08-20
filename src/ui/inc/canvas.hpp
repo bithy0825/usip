@@ -30,6 +30,7 @@
 
 #include "draw.hpp"
 #include "event.hpp"
+#include "threshold_tool.hpp"
 #include "ui_protocol.hpp"
 
 class QSlider;
@@ -86,6 +87,10 @@ private:
     void on_mask_opacity_changed(const cbuspp::value<double>& value);
     void on_mask_floor_changed(const cbuspp::value<double>& value);
     void on_mask_ceiling_changed(const cbuspp::value<double>& value);
+    // 阈值分割工具(canvas 编排:输入转换 → exec;事件 → apply/cancel)
+    void on_threshold_segment_requested();
+    void on_tool_result_applied();
+    void on_tool_result_canceled();
     // L5 标注参数(层未实现,暂存)
     void on_measure_line_width_changed(const cbuspp::value<int>& value);
     void on_measure_line_color_changed(const cbuspp::value<QColor>& value);
@@ -97,8 +102,11 @@ private:
     [[nodiscard]] auto ensure_compare_page() -> bool;
     // 校验并缓存对比页指针(失败发 error_occurred)
     [[nodiscard]] auto validate_compare() -> bool;
-    // 按 page_->mask.range 重算 mask 图像并清 L3 缓存
-    void rethreshold_mask();
+    // 结束阈值会话(工具取消 + 清双 L6 缓存 + 广播 canceled 回同步侧边栏按钮)
+    void cancel_threshold_session();
+    // L6:工具临时掩膜叠加(index 对应 preview() 序号;orient 取该半区页面)
+    void draw_temp_mask(QPainter& painter, std::size_t index, const core::page& subject,
+        QImage& cache);
 
     // ── 视图约束(旧版同款;split 以 S 所在半区为视口,slider 为整视口)─────────
     void clamp_offset();
@@ -119,7 +127,10 @@ private:
     QImage l1_img_ { }, l1c_img_ { }; // L1:主/副底图
     QImage l2_img_ { }; // L2:运算层合成图(highlight/difference)
     QImage l3_img_ { }; // L3:mask 着色
-    QImage l4_img_ { }, l5_img_ { }, l6_img_ { }; // 预留
+    QImage l4_img_ { }, l5_img_ { }; // 预留(ROI / 标注)
+    QImage l6_img_ { }, l6c_img_ { }; // L6:工具临时掩膜(主/副侧)
+
+    threshold_tool threshold_tool_ { }; // 阈值分割(canvas 编排,工具不持总线)
 
     std::weak_ptr<core::document> doc_ { }; // 激活文档(非拥有,实体在 service)
     std::weak_ptr<core::page> page_ { }; // 激活页(非拥有)

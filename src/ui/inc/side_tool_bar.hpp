@@ -24,6 +24,11 @@ private:
     void setup_subscriptions();
     void setup_connections();
 
+    // 阈值会话开启:禁用其余工具按钮(阈值按钮保持可点,再点即取消)
+    void on_threshold_segment_requested();
+    // 工具会话结束(apply/canceled 广播):解禁 + 回落勾选(阻断,不回发事件)
+    void on_tool_session_ended();
+
 private:
     QAction* rectangle_ { nullptr };
     QAction* ellipse_ { nullptr };

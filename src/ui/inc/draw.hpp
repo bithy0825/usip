@@ -68,4 +68,9 @@ void draw(QPainter&, const core::page& subject, const core::page* compare,
 // 页显示尺寸(orient 后):canvas 平移/缩放 clamp 与适配依据;纯函数不建缓存
 [[nodiscard]] auto oriented_size(const core::page&) -> QSize;
 
+// 掩膜叠加图(8 位掩膜非零像素着色 = 色 × 不透明度,零像素全透明;orient 对齐):
+// L3 与画布的工具临时层(L6)共用 —— L6 传工具的临时掩膜与所属页 info
+[[nodiscard]] auto mask_overlay(const QImage& mask, const common::page_info& info,
+    const options& opts) -> QImage;
+
 }

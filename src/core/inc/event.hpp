@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 #include "colormap.hpp"
 #include "document.hpp"
@@ -19,6 +20,8 @@ namespace usip::core {
     struct NAME : ::cbuspp::event_tag<TAG_STRING, ::cbuspp::value<VALUE_TYPE>> { }
 
 namespace event {
+
+    using mask_range = std::pair<double, double>;
 
     namespace trace_id {
         constexpr const char* file_service { "file_service" }; // NOLINT(readability-identifier-naming)
@@ -55,6 +58,7 @@ namespace event {
     CBUSPP_EVENT(mask_visible_toggled, "mask_visible.toggled", bool);
     CBUSPP_EVENT(mask_floor_changed, "mask_floor.changed", double);
     CBUSPP_EVENT(mask_ceiling_changed, "mask_ceiling.changed", double);
+    CBUSPP_EVENT(mask_range_echo, "mask_range.echo", mask_range);
 
     CBUSPP_EVENT(measure_line_width_changed, "measure_line_width.changed", int);
     CBUSPP_EVENT(measure_line_color_changed, "measure_line_color.changed", QColor);

@@ -16,6 +16,7 @@
 #include <QWheelEvent>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <utility>
 
@@ -42,43 +43,6 @@ namespace {
         opts.line_color
             = QColor(QString::fromStdString(cfg->get<std::string>("measure.line_color")));
         return opts;
-    }
-
-    // 阈值分割:8 位显示域比较(u16 取 >> 8,与直方图 bin 同域);仅灰度页,
-    // 彩色页返回空(保留旧 mask)。产物与原始页同尺寸同朝向,orient 由 L3 对齐
-    [[nodiscard]] auto make_threshold_mask(const QImage& img, double floor, double ceil)
-        -> QImage
-    {
-        if (img.isNull())
-            return { };
-
-        QImage out { img.size(), QImage::Format_Grayscale8 };
-        switch (img.format()) {
-        case QImage::Format_Grayscale8:
-            for (int y = 0; y < img.height(); ++y) {
-                const auto* src = img.constScanLine(y);
-                auto* dst = out.scanLine(y);
-                for (int x = 0; x < img.width(); ++x) {
-                    const auto v = static_cast<double>(src[x]);
-                    dst[x] = v >= floor && v <= ceil ? 255 : 0;
-                }
-            }
-            break;
-        case QImage::Format_Grayscale16:
-            for (int y = 0; y < img.height(); ++y) {
-                const auto* src
-                    = reinterpret_cast<const std::uint16_t*>(img.constScanLine(y));
-                auto* dst = out.scanLine(y);
-                for (int x = 0; x < img.width(); ++x) {
-                    const auto v = static_cast<double>(src[x] >> 8);
-                    dst[x] = v >= floor && v <= ceil ? 255 : 0;
-                }
-            }
-            break;
-        default:
-            return { };
-        }
-        return out;
     }
 
 } // namespace
@@ -123,6 +87,10 @@ void canvas::setup_subscriptions()
     bus_.on<core::event::mask_opacity_changed>().call(*this, &canvas::on_mask_opacity_changed);
     bus_.on<core::event::mask_floor_changed>().call(*this, &canvas::on_mask_floor_changed);
     bus_.on<core::event::mask_ceiling_changed>().call(*this, &canvas::on_mask_ceiling_changed);
+    bus_.on<core::event::threshold_segment_requested>()
+        .call(*this, &canvas::on_threshold_segment_requested);
+    bus_.on<core::event::tool_result_applied>().call(*this, &canvas::on_tool_result_applied);
+    bus_.on<core::event::tool_result_canceled>().call(*this, &canvas::on_tool_result_canceled);
     bus_.on<core::event::measure_line_width_changed>()
         .call(*this, &canvas::on_measure_line_width_changed);
     bus_.on<core::event::measure_line_color_changed>()
@@ -144,6 +112,7 @@ void canvas::on_document_ready(const cbuspp::value<std::shared_ptr<core::documen
     const auto& doc = *value;
     if (!doc)
         return;
+    cancel_threshold_session(); // 会话属于旧页:丢弃(内部自判活跃)
     doc_ = doc;
     resolve_pages();
     // 页/文档变 → 全部层缓存重建(L4-L6 实现时同清)
@@ -151,6 +120,8 @@ void canvas::on_document_ready(const cbuspp::value<std::shared_ptr<core::documen
     l1c_img_ = { };
     l2_img_ = { };
     l3_img_ = { };
+    l6_img_ = { };
+    l6c_img_ = { };
     view_dirty_ = true; // 新文档:延迟到尺寸有效时适配居中
     // 对比模式下新页无有效对比页 → 询问或回退 single(工具栏经订阅回同步)
     if (options_.mode != core::view_mode::single && compare_page_.expired()
@@ -170,12 +141,15 @@ void canvas::on_document_switch(
     const auto& doc = *value;
     if (!doc) // 空载荷(如重复打开的提醒)不切
         return;
+    cancel_threshold_session(); // 页切换亦经本事件广播:会话属于旧页
     doc_ = doc;
     resolve_pages();
     l1_img_ = { };
     l1c_img_ = { };
     l2_img_ = { };
     l3_img_ = { };
+    l6_img_ = { };
+    l6c_img_ = { };
     view_dirty_ = true;
     if (options_.mode != core::view_mode::single && compare_page_.expired()
         && !ensure_compare_page()) {
@@ -204,6 +178,9 @@ void canvas::on_view_mode_changed(const cbuspp::value<core::view_mode>& value)
     }
 
     options_.mode = mode;
+    // 对比三式(slider/highlight/difference)禁用 mask 工具:会话中则取消
+    if (mode != core::view_mode::single && mode != core::view_mode::split)
+        cancel_threshold_session();
     slider_->setVisible(mode == core::view_mode::slider);
     l2_img_ = { }; // 运算层内容随模式变
     view_dirty_ = true; // 视口定义变(整视口 ↔ 半区),重新适配
@@ -221,6 +198,7 @@ void canvas::on_compare_page_selected(const cbuspp::value<int>& value)
         return;
 
     page->compare_to = doc->info.pages[static_cast<std::size_t>(idx)].id; // 显式选择,写入页
+    cancel_threshold_session(); // 会话掩膜属于旧主副配对,换了副图须重来
     l1c_img_ = { };
     l2_img_ = { };
     // 已在对比模式:立刻校验新对比页,失败回退 single
@@ -270,6 +248,8 @@ void canvas::on_mask_color_changed(const cbuspp::value<QColor>& value)
 {
     options_.mask_color = *value;
     l3_img_ = { };
+    l6_img_ = { }; // 临时层同换色
+    l6c_img_ = { };
     update();
 }
 
@@ -277,29 +257,108 @@ void canvas::on_mask_opacity_changed(const cbuspp::value<double>& value)
 {
     options_.mask_opacity = *value;
     l3_img_ = { };
+    l6_img_ = { };
+    l6c_img_ = { };
     update();
 }
 
 void canvas::on_mask_floor_changed(const cbuspp::value<double>& value)
 {
-    const auto page = page_.lock();
-    if (!page)
+    if (!threshold_tool_.active()) // 阈值只属于会话;数据仅经 apply 落盘
         return;
-    if (!page->mask) // 惰性:未初始化的页此刻补建
-        page->mask.emplace();
-    page->mask->range.first = *value;
-    rethreshold_mask();
+    auto range = threshold_tool_.range();
+    range.first = *value;
+    threshold_tool_.set_range(range);
+    l6_img_ = { };
+    l6c_img_ = { };
+    update();
 }
 
 void canvas::on_mask_ceiling_changed(const cbuspp::value<double>& value)
 {
-    const auto page = page_.lock();
-    if (!page)
+    if (!threshold_tool_.active())
         return;
-    if (!page->mask)
-        page->mask.emplace();
-    page->mask->range.second = *value;
-    rethreshold_mask();
+    auto range = threshold_tool_.range();
+    range.second = *value;
+    threshold_tool_.set_range(range);
+    l6_img_ = { };
+    l6c_img_ = { };
+    update();
+}
+
+// ─── 阈值分割工具(canvas 编排)───────────────────────────────────────────────
+
+void canvas::on_threshold_segment_requested()
+{
+    const auto page = page_.lock();
+    if (!page) { // 无页:无从分割,按钮回落
+        bus_.post<core::event::tool_result_canceled>().sync();
+        return;
+    }
+
+    // slider/highlight/difference 禁用 mask 工具
+    if (options_.mode != core::view_mode::single && options_.mode != core::view_mode::split) {
+        auto err = common::error::make(common::errc::validation_failed,
+            "threshold segmentation is disabled in this view mode");
+        bus_.post<core::event::error_occurred>(cbuspp::value<common::error&> { err }).sync();
+        bus_.post<core::event::tool_result_canceled>().sync(); // 侧边栏按钮回落
+        return;
+    }
+
+    // single:主图 ×1;split:主+副 ×2(副图缺位按 1 张退化,预览只画主侧)
+    std::array<QImage, 2> images { page->image, QImage { } };
+    std::size_t count = 1;
+    if (options_.mode == core::view_mode::split) {
+        if (const auto compare = compare_page_.lock())
+            images[count++] = compare->image;
+    }
+    // 起始域取主页面当前 mask 域(未建则全量程)
+    const auto range
+        = page->mask ? page->mask->range : std::pair<double, double> { 0.0, 255.0 };
+
+    if (auto started = threshold_tool_.exec(
+            std::span<const QImage> { images }.first(count), range);
+        !started) {
+        bus_.post<core::event::error_occurred>(
+            cbuspp::value<common::error&> { started.error() })
+            .sync();
+        bus_.post<core::event::tool_result_canceled>().sync();
+        return;
+    }
+
+    l6_img_ = { };
+    l6c_img_ = { };
+    // 滑条跟随会话起始域(mask_options 阻断回设,不回发事件)
+    bus_.post<core::event::mask_range_echo>(
+        cbuspp::value<core::event::mask_range> { range })
+        .sync();
+    update();
+}
+
+void canvas::on_tool_result_applied()
+{
+    if (!threshold_tool_.active())
+        return;
+
+    if (auto r = threshold_tool_.apply(); r) {
+        if (const auto page = page_.lock()) {
+            page->mask = std::move(r->primary); // 仅落盘主页;secondary 仅预览语义
+            l3_img_ = { }; // 持久 mask 内容变
+        } // 页已失效:结果丢弃(副页本就仅预览)
+    }
+    l6_img_ = { };
+    l6c_img_ = { };
+    update();
+}
+
+void canvas::on_tool_result_canceled()
+{
+    if (!threshold_tool_.active())
+        return;
+    threshold_tool_.cancel();
+    l6_img_ = { };
+    l6c_img_ = { };
+    update();
 }
 
 void canvas::on_measure_line_width_changed(const cbuspp::value<int>& value)
@@ -380,18 +439,28 @@ auto canvas::validate_compare() -> bool
     return true;
 }
 
-void canvas::rethreshold_mask()
+void canvas::cancel_threshold_session()
 {
-    const auto page = page_.lock();
-    if (!page || !page->mask)
+    if (!threshold_tool_.active())
         return;
-    if (QImage img = make_threshold_mask(page->image, page->mask->range.first,
-            page->mask->range.second);
-        !img.isNull()) {
-        page->mask->image = std::move(img);
-        l3_img_ = { }; // L3 内容变 → 清缓存重建
-    }
+    threshold_tool_.cancel();
+    l6_img_ = { };
+    l6c_img_ = { };
+    // 广播 canceled:侧边栏按钮回落(本事件回流到自身订阅时工具已取消,无递归)
+    bus_.post<core::event::tool_result_canceled>().sync();
     update();
+}
+
+void canvas::draw_temp_mask(QPainter& painter, std::size_t index, const core::page& subject,
+    QImage& cache)
+{
+    const auto masks = threshold_tool_.preview();
+    if (index >= masks.size() || masks[index].isNull())
+        return; // 会话外 / 该侧无掩膜(非灰度副图)
+    if (cache.isNull())
+        cache = mask_overlay(masks[index], subject.info, options_);
+    if (!cache.isNull())
+        painter.drawImage(0, 0, cache);
 }
 
 // ─── 视图约束(旧版同款)────────────────────────────────────────────────────────
@@ -520,7 +589,7 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l3>(painter, *page, nullptr, options_, l3_img_);
         draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
-        draw<layer::l6>(painter, *page, nullptr, options_, l6_img_);
+        draw_temp_mask(painter, 0, *page, l6_img_); // L6:工具临时掩膜
         break;
 
     case core::view_mode::highlight:
@@ -531,7 +600,6 @@ void canvas::paintEvent(QPaintEvent* event)
             draw<layer::l2>(painter, *page, compare.get(), options_, l2_img_);
         draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
-        draw<layer::l6>(painter, *page, nullptr, options_, l6_img_);
         break;
     }
 
@@ -551,7 +619,7 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l1>(painter, *page, nullptr, options_, l1_img_);
         draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
-        draw<layer::l6>(painter, *page, nullptr, options_, l6_img_);
+        draw_temp_mask(painter, 0, *page, l6_img_);
         painter.restore();
 
         painter.save(); // 右半:C(origin = 缝)
@@ -560,7 +628,7 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l1>(painter, *compare, nullptr, options_, l1c_img_);
         draw<layer::l4>(painter, *compare, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *compare, nullptr, options_, l5_img_);
-        draw<layer::l6>(painter, *compare, nullptr, options_, l6_img_);
+        draw_temp_mask(painter, 1, *compare, l6c_img_); // L6:副侧自己的掩膜
         painter.restore();
 
         draw_seam(seam, height());
@@ -584,7 +652,6 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l1>(painter, *page, nullptr, options_, l1_img_);
         draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
-        draw<layer::l6>(painter, *page, nullptr, options_, l6_img_);
         painter.restore();
 
         painter.save();
@@ -593,7 +660,6 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l1>(painter, *compare, nullptr, options_, l1c_img_);
         draw<layer::l4>(painter, *compare, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *compare, nullptr, options_, l5_img_);
-        draw<layer::l6>(painter, *compare, nullptr, options_, l6_img_);
         painter.restore();
 
         draw_seam(seam, height());

@@ -115,13 +115,13 @@ namespace {
         return img;
     }
 
-    // L3 内容:mask 非零像素着色(色 × 不透明度),零像素全透明;与 L1 同 orient 对齐
-    [[nodiscard]] auto make_mask_overlay(const core::page& page, const options& opts) -> QImage
+    // 掩膜非零像素着色(色 × 不透明度),零像素全透明;与 L1 同 orient 对齐
+    [[nodiscard]] auto mask_overlay_impl(const QImage& mask, common::orientation orient,
+        const options& opts) -> QImage
     {
-        if (!page.mask || page.mask->image.isNull())
+        if (mask.isNull())
             return { };
 
-        const auto& mask = page.mask->image; // 8 位灰度:范围内 255,范围外 0
         QImage overlay { mask.size(), QImage::Format_RGBA8888 };
         overlay.fill(Qt::transparent);
 
@@ -134,7 +134,7 @@ namespace {
                 if (src[x] != 0)
                     dst[x] = word;
         }
-        return overlay.transformed(orient_transform(page.info.orient));
+        return overlay.transformed(orient_transform(orient));
     }
 
     // 差值:(主+255)-副 ∈ [0,510] 存 Grayscale16(255 = 零差异);尺寸不一致 → 空
@@ -242,7 +242,7 @@ void draw(QPainter& painter, const core::page& subject,
         if (opts.mode != core::view_mode::single || !opts.mask_enabled || !subject.mask)
             return;
         if (cache.isNull())
-            cache = make_mask_overlay(subject, opts);
+            cache = mask_overlay_impl(subject.mask->image, subject.info.orient, opts);
         if (!cache.isNull())
             painter.drawImage(0, 0, cache);
     } else {
@@ -286,6 +286,13 @@ auto oriented_size(const core::page& page) -> QSize
         return page.image.size().transposed();
     }
     std::unreachable();
+}
+
+// ─── 掩膜叠加(L3 与画布工具临时层共用)────────────────────────────────────────
+
+auto mask_overlay(const QImage& mask, const common::page_info& info, const options& opts) -> QImage
+{
+    return mask_overlay_impl(mask, info.orient, opts);
 }
 
 }

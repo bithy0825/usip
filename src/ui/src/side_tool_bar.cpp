@@ -3,6 +3,7 @@
 #include "icon_registry.hpp"
 
 #include <QAction>
+#include <QSignalBlocker>
 #include <qkeysequence.h>
 #include <qnamespace.h>
 
@@ -49,7 +50,15 @@ void side_tool_bar::setup_ui()
     measure_->setCheckable(true);
 }
 
-void side_tool_bar::setup_subscriptions() { }
+void side_tool_bar::setup_subscriptions()
+{
+    bus_.on<core::event::threshold_segment_requested>()
+        .call(*this, &side_tool_bar::on_threshold_segment_requested);
+    // 工具会话结束 → 解禁 + 按钮回落(取消勾选阻断,不回发 canceled)
+    bus_.on<core::event::tool_result_applied>().call(*this, &side_tool_bar::on_tool_session_ended);
+    bus_.on<core::event::tool_result_canceled>()
+        .call(*this, &side_tool_bar::on_tool_session_ended);
+}
 
 void side_tool_bar::setup_connections()
 {
@@ -62,12 +71,32 @@ void side_tool_bar::setup_connections()
     connect(polygon_, &QAction::triggered, this, [this] {
         bus_.post<core::event::polygon_draw_requested>().sync();
     });
-    connect(threshold_seg_, &QAction::triggered, this, [this] {
-        bus_.post<core::event::threshold_segment_requested>().sync();
+    // 勾选 = 请求会话;取消勾选(再点一次)= 取消会话
+    connect(threshold_seg_, &QAction::toggled, this, [this](bool checked) {
+        if (checked)
+            bus_.post<core::event::threshold_segment_requested>().sync();
+        else
+            bus_.post<core::event::tool_result_canceled>().sync();
     });
     connect(measure_, &QAction::triggered, this, [this] {
         bus_.post<core::event::measure_requested>().sync();
     });
+}
+
+void side_tool_bar::on_threshold_segment_requested()
+{
+    for (auto* action : { rectangle_, ellipse_, polygon_, measure_ })
+        action->setEnabled(false);
+}
+
+void side_tool_bar::on_tool_session_ended()
+{
+    for (auto* action : { rectangle_, ellipse_, polygon_, measure_ })
+        action->setEnabled(true);
+    if (!threshold_seg_->isChecked())
+        return;
+    const QSignalBlocker blocker(threshold_seg_);
+    threshold_seg_->setChecked(false);
 }
 
 } // namespace usip::ui

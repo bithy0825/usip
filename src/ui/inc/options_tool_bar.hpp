@@ -5,7 +5,9 @@
 
 #include <cstdint>
 #include <memory>
+#include <utility>
 
+#include "event.hpp"
 #include "ui_protocol.hpp"
 
 class QAction;
@@ -56,6 +58,7 @@ private:
     void on_polygon_draw_requested();
     void on_threshold_segment_requested();
     void on_measure_requested();
+    void on_tool_session_ended();
 
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
@@ -126,6 +129,9 @@ private:
     void setup_ui();
     void setup_subscriptions();
     void setup_connections();
+
+    void on_mask_range_echo(const cbuspp::value<core::event::mask_range>& value);
+    void sync_range(const std::pair<double, double>& range);
 
 private:
     options_tool_bar& opt_tool_bar_;

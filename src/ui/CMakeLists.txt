@@ -33,7 +33,6 @@ target_sources(usip_ui
             inc/QRangeSlider.hpp
             inc/canvas.hpp
             inc/draw.hpp
-            inc/tool.hpp
             inc/status_bar.hpp
 )
 
@@ -59,6 +58,7 @@ target_link_libraries(usip_ui
         usip::core
         3rdparty::qt6
     PRIVATE
+        usip::tool # 阈值分割等画布工具(实现细节,不入接口)
         3rdparty::magic_enum # colormap 按钮的枚举遍历(实现细节,不入接口)
 )
 
