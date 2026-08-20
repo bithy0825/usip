@@ -63,6 +63,12 @@ namespace event {
     CBUSPP_EVENT(measure_line_width_changed, "measure_line_width.changed", int);
     CBUSPP_EVENT(measure_line_color_changed, "measure_line_color.changed", QColor);
 
+    // 采集步长(mm/像素,逐轴):写 document.step,使当前文档全部页的标注失效
+    CBUSPP_EVENT(step_x_changed, "step.x.changed", double);
+    CBUSPP_EVENT(step_y_changed, "step.y.changed", double);
+    // 清除主、副两页的全部标注数据(含因不一致未渲染的;菜单 Clear Measurements)
+    CBUSPP_EVENT(measurements_clear_requested, "measurements.clear_requested", void);
+
     CBUSPP_EVENT(error_occurred, "error.occurred", common::error&);
 }
 

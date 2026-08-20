@@ -28,6 +28,7 @@
 
 #include <QWidget>
 
+#include "annotation_tool.hpp"
 #include "draw.hpp"
 #include "event.hpp"
 #include "threshold_tool.hpp"
@@ -91,9 +92,17 @@ private:
     void on_threshold_segment_requested();
     void on_tool_result_applied();
     void on_tool_result_canceled();
-    // L5 标注参数(层未实现,暂存)
+    // 标注工具(measure 按钮触发;不消费像素,exec 只带 step)
+    void on_measure_requested();
+    // L5 标注参数(线宽/线色改即时重绘)
     void on_measure_line_width_changed(const cbuspp::value<int>& value);
     void on_measure_line_color_changed(const cbuspp::value<QColor>& value);
+    // 采集步长(写 document.step,全文档标注失效;会话中顺带清主副两页并重算临时标签)
+    void on_step_x_changed(const cbuspp::value<double>& value);
+    void on_step_y_changed(const cbuspp::value<double>& value);
+    void apply_step_change(bool x_axis, double value);
+    // 清除主、副两页全部标注数据(含未渲染的)
+    void on_measurements_clear_requested();
 
     // doc_ → page_(active_page)与 compare_page_(compare_to);无则置空
     void resolve_pages();
@@ -104,9 +113,18 @@ private:
     [[nodiscard]] auto validate_compare() -> bool;
     // 结束阈值会话(工具取消 + 清双 L6 缓存 + 广播 canceled 回同步侧边栏按钮)
     void cancel_threshold_session();
+    // 结束标注会话(同上;标注无层缓存,直接 update)
+    void cancel_annotation_session();
     // L6:工具临时掩膜叠加(index 对应 preview() 序号;orient 取该半区页面)
     void draw_temp_mask(QPainter& painter, std::size_t index, const core::page& subject,
         QImage& cache);
+    // L6:标注工具临时预览(已落 + 拖拽中;矢量直绘,无缓存)
+    void draw_temp_annotations(QPainter& painter);
+    // 屏幕 → 图像像素(标注手势;origin:split 右半 = seam,其余 0);端点钳制在图像范围内
+    [[nodiscard]] auto image_pos(const QPointF& screen, double origin) const -> QPointF;
+    // Shift 按下时把线末端吸附到水平/垂直主轴(相对草稿起点)
+    [[nodiscard]] auto aligned_end(const QPointF& end, Qt::KeyboardModifiers mods) const
+        -> QPointF;
 
     // ── 视图约束(旧版同款;split 以 S 所在半区为视口,slider 为整视口)─────────
     void clamp_offset();
@@ -131,6 +149,10 @@ private:
     QImage l6_img_ { }, l6c_img_ { }; // L6:工具临时掩膜(主/副侧)
 
     threshold_tool threshold_tool_ { }; // 阈值分割(canvas 编排,工具不持总线)
+    annotation_tool annotation_tool_ { }; // 标注(同上)
+
+    bool annot_dragging_ { false }; // 标注手势进行中(左键按住)
+    double annot_origin_ { 0.0 }; // 手势所在半区的视口 origin(split 右半 = seam)
 
     std::weak_ptr<core::document> doc_ { }; // 激活文档(非拥有,实体在 service)
     std::weak_ptr<core::page> page_ { }; // 激活页(非拥有)

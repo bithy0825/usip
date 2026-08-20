@@ -22,10 +22,12 @@ struct roi {
     Clipper2Lib::PathsD path;
 };
 
-// ─── 标注:两点 + 标签(如 "35.96mm";由测量方按 dpi 换算后写入)──────────────
+// ─── 标注:两点 + 标签(如 "35.96mm";距离 = 像素差 × step 快照)────────────
 struct annotation {
     std::pair<QPointF, QPointF> line { }; // 两点
     std::string label { };
+    std::pair<double, double> step { }; // 创建时的 document.step 快照;渲染时
+                                       // 与所属文档当前 step 比对,不一致即删除不渲染
 };
 
 // ─── mask:阈值分割蒙版 ──────────────────────────────────────────────────

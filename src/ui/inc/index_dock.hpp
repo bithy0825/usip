@@ -43,6 +43,8 @@ private:
 
     // 选中该页所在行(阻断信号:程序性选择不发 page_switch_requested)
     void select_page_row(const cuuidpp::uuid& page_id);
+    // step 控件回显 document.step(阻断,不回发事件)
+    void sync_step(const core::document& doc);
 
 private:
     QComboBox* doc_ { nullptr };

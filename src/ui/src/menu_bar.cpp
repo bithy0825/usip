@@ -83,6 +83,9 @@ void menu_bar::setup_connections()
     connect(mask_, &QAction::triggered, this, [this](bool checked) {
         bus_.post<core::event::mask_visible_toggled>(cbuspp::value<bool> { checked }).sync();
     });
+    connect(clear_measurements_, &QAction::triggered, this, [this] {
+        bus_.post<core::event::measurements_clear_requested>().sync();
+    });
     connect(zero_is_black_, &QAction::triggered, this, [this](bool checked) {
         bus_.post<core::event::pseudocolor_zero_is_black_toggled>(
                 cbuspp::value<bool> { checked })

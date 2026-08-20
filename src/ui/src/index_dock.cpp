@@ -137,6 +137,12 @@ void index_dock::setup_ui()
     doc_ = new QComboBox(container);
     x_step_ = new QDoubleSpinBox(container);
     y_step_ = new QDoubleSpinBox(container);
+    for (auto* step : { x_step_, y_step_ }) { // mm/像素:初值 1.00,范围 [0.01,100.0],步进 0.25
+        step->setDecimals(2);
+        step->setRange(0.01, 100.0);
+        step->setSingleStep(0.25);
+        step->setValue(1.00);
+    }
     stacked_ = new QStackedWidget(container);
     empty_ = make_table(container);
     stacked_->addWidget(empty_);
@@ -178,6 +184,22 @@ void index_dock::setup_connections()
                 cbuspp::value<cuuidpp::uuid> { doc_->itemData(index).value<cuuidpp::uuid>() })
             .sync();
     });
+
+    // 采集步长(逐轴):画布写 document.step 并按简化语义清除标注
+    connect(x_step_, &QDoubleSpinBox::valueChanged, this, [this](double value) {
+        bus_.post<core::event::step_x_changed>(cbuspp::value<double> { value }).sync();
+    });
+    connect(y_step_, &QDoubleSpinBox::valueChanged, this, [this](double value) {
+        bus_.post<core::event::step_y_changed>(cbuspp::value<double> { value }).sync();
+    });
+}
+
+void index_dock::sync_step(const core::document& doc)
+{
+    // 阻断:程序性回设不得触发 valueChanged 回发 step 事件
+    const QSignalBlocker x { x_step_ }, y { y_step_ };
+    x_step_->setValue(doc.step.first);
+    y_step_->setValue(doc.step.second);
 }
 
 void index_dock::on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value)
@@ -198,6 +220,7 @@ void index_dock::on_document_ready(const cbuspp::value<std::shared_ptr<core::doc
     doc_->addItem(QString::fromStdString(doc->info.path.filename().string()),
         QVariant::fromValue(doc->info.id));
     doc_->setCurrentIndex(doc_->count() - 1);
+    sync_step(*doc); // 新文档读入自己的 step
 }
 
 void index_dock::on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value)
@@ -213,6 +236,7 @@ void index_dock::on_document_switch(const cbuspp::value<std::shared_ptr<core::do
     if (const auto it = tables_.find(doc->info.id); it != tables_.end())
         stacked_->setCurrentWidget(it->second);
     select_page_row(doc->active_page); // 页切换链路回Sync行选择(阻断,不回发)
+    sync_step(*doc); // 切文档读入新 step(各文档 step 独立)
 }
 
 void index_dock::on_page_rois_changed(const cbuspp::value<std::shared_ptr<core::page>>& value)

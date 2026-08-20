@@ -28,6 +28,8 @@
 #include <QColor>
 #include <QImage>
 
+#include <span>
+
 #include "colormap.hpp"
 #include "document.hpp"
 #include "view_mode.hpp"
@@ -72,5 +74,12 @@ void draw(QPainter&, const core::page& subject, const core::page* compare,
 // L3 与画布的工具临时层(L6)共用 —— L6 传工具的临时掩膜与所属页 info
 [[nodiscard]] auto mask_overlay(const QImage& mask, const common::page_info& info,
     const options& opts) -> QImage;
+
+// 标注矢量渲染(L5 持久层与画布临时层共用):经 painter 现有变换映射到屏幕
+// 坐标后直绘,不用层缓存(量少,缩放平移零重建)。样式:等距虚线(4:3,
+// 线宽/线色走 opts)+ 端点圆点 + 半透明黑底药丸标签,尺寸屏幕恒定;
+// ghost=true 整体降透明度(拖拽中的草稿)
+void draw_annotations(QPainter& painter, std::span<const core::annotation> annotations,
+    const options& opts, bool ghost = false);
 
 }

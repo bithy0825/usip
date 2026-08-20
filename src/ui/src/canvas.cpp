@@ -17,7 +17,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <utility>
 
 #include "config.hpp"
@@ -91,6 +93,11 @@ void canvas::setup_subscriptions()
         .call(*this, &canvas::on_threshold_segment_requested);
     bus_.on<core::event::tool_result_applied>().call(*this, &canvas::on_tool_result_applied);
     bus_.on<core::event::tool_result_canceled>().call(*this, &canvas::on_tool_result_canceled);
+    bus_.on<core::event::measure_requested>().call(*this, &canvas::on_measure_requested);
+    bus_.on<core::event::step_x_changed>().call(*this, &canvas::on_step_x_changed);
+    bus_.on<core::event::step_y_changed>().call(*this, &canvas::on_step_y_changed);
+    bus_.on<core::event::measurements_clear_requested>()
+        .call(*this, &canvas::on_measurements_clear_requested);
     bus_.on<core::event::measure_line_width_changed>()
         .call(*this, &canvas::on_measure_line_width_changed);
     bus_.on<core::event::measure_line_color_changed>()
@@ -113,6 +120,7 @@ void canvas::on_document_ready(const cbuspp::value<std::shared_ptr<core::documen
     if (!doc)
         return;
     cancel_threshold_session(); // 会话属于旧页:丢弃(内部自判活跃)
+    cancel_annotation_session();
     doc_ = doc;
     resolve_pages();
     // 页/文档变 → 全部层缓存重建(L4-L6 实现时同清)
@@ -142,6 +150,7 @@ void canvas::on_document_switch(
     if (!doc) // 空载荷(如重复打开的提醒)不切
         return;
     cancel_threshold_session(); // 页切换亦经本事件广播:会话属于旧页
+    cancel_annotation_session();
     doc_ = doc;
     resolve_pages();
     l1_img_ = { };
@@ -337,38 +346,131 @@ void canvas::on_threshold_segment_requested()
 
 void canvas::on_tool_result_applied()
 {
-    if (!threshold_tool_.active())
+    if (threshold_tool_.active()) { // 阈值:仅落盘主页,secondary 仅预览语义
+        if (auto r = threshold_tool_.apply(); r) {
+            if (const auto page = page_.lock()) {
+                page->mask = std::move(r->primary);
+                l3_img_ = { }; // 持久 mask 内容变
+            } // 页已失效:结果丢弃(副页本就仅预览)
+        }
+        l6_img_ = { };
+        l6c_img_ = { };
+        update();
+        return;
+    }
+
+    if (!annotation_tool_.active()) // 无任何会话
         return;
 
-    if (auto r = threshold_tool_.apply(); r) {
+    if (auto r = annotation_tool_.apply(); r) {
         if (const auto page = page_.lock()) {
-            page->mask = std::move(r->primary); // 仅落盘主页;secondary 仅预览语义
-            l3_img_ = { }; // 持久 mask 内容变
-        } // 页已失效:结果丢弃(副页本就仅预览)
+            // 落盘时盖所属文档当前 step 快照(权威值;与工具内快照一致,防漂移)
+            if (const auto doc = doc_.lock())
+                for (auto& a : r->annotations)
+                    a.step = doc->step;
+            // 对比模式:同值双写(L5 的"完全相同"过滤天然成立);single 只写主页
+            if (options_.mode != core::view_mode::single) {
+                if (const auto compare = compare_page_.lock())
+                    compare->annotations.insert(compare->annotations.end(),
+                        r->annotations.begin(), r->annotations.end());
+            }
+            page->annotations.insert(page->annotations.end(),
+                std::make_move_iterator(r->annotations.begin()),
+                std::make_move_iterator(r->annotations.end()));
+        } // 页已失效:结果丢弃
     }
-    l6_img_ = { };
-    l6c_img_ = { };
+    annot_dragging_ = false;
     update();
 }
 
 void canvas::on_tool_result_canceled()
 {
-    if (!threshold_tool_.active())
+    if (threshold_tool_.active()) {
+        threshold_tool_.cancel();
+        l6_img_ = { };
+        l6c_img_ = { };
+        update();
         return;
-    threshold_tool_.cancel();
-    l6_img_ = { };
-    l6c_img_ = { };
-    update();
+    }
+    if (annotation_tool_.active()) {
+        annotation_tool_.cancel();
+        annot_dragging_ = false;
+        update();
+    }
+}
+
+void canvas::on_measure_requested()
+{
+    const auto doc = doc_.lock();
+    const auto page = page_.lock();
+    if (!doc || !page) { // 无页:无从标注,按钮回落
+        bus_.post<core::event::tool_result_canceled>().sync();
+        return;
+    }
+    if (auto started = annotation_tool_.exec(doc->step); !started) {
+        bus_.post<core::event::error_occurred>(
+            cbuspp::value<common::error&> { started.error() })
+            .sync();
+        bus_.post<core::event::tool_result_canceled>().sync();
+        return;
+    }
+    update(); // L6 进入标注预览态
 }
 
 void canvas::on_measure_line_width_changed(const cbuspp::value<int>& value)
 {
-    options_.line_width = *value; // L5 未实现:仅暂存
+    options_.line_width = *value;
+    update(); // L5/L6 同款样式,改动即刻生效
 }
 
 void canvas::on_measure_line_color_changed(const cbuspp::value<QColor>& value)
 {
     options_.line_color = *value;
+    update();
+}
+
+void canvas::on_step_x_changed(const cbuspp::value<double>& value)
+{
+    apply_step_change(true, *value);
+}
+
+void canvas::on_step_y_changed(const cbuspp::value<double>& value)
+{
+    apply_step_change(false, *value);
+}
+
+void canvas::apply_step_change(bool x_axis, double value)
+{
+    const auto doc = doc_.lock();
+    if (!doc)
+        return;
+    // 只写当前文档;变更即删其每一页的全部标注(其余文档的 step 独立,互不影响)
+    (x_axis ? doc->step.first : doc->step.second) = value;
+    for (auto& [id, page] : doc->pages)
+        page->annotations.clear();
+
+    if (annotation_tool_.active()) // 会话中:临时层一并清空,后续新线用新 step
+        annotation_tool_.reset_for_step(doc->step);
+    update();
+}
+
+void canvas::on_measurements_clear_requested()
+{
+    // single 只清当前页;对比模式清主、副两页(均含未渲染的;不碰文档其余页)
+    bool touched = false;
+    if (const auto page = page_.lock(); page && !page->annotations.empty()) {
+        page->annotations.clear();
+        touched = true;
+    }
+    if (options_.mode != core::view_mode::single) {
+        if (const auto compare = compare_page_.lock();
+            compare && !compare->annotations.empty()) {
+            compare->annotations.clear();
+            touched = true;
+        }
+    }
+    if (touched)
+        update();
 }
 
 // ─── 页解析与校验 ─────────────────────────────────────────────────────────────
@@ -461,6 +563,52 @@ void canvas::draw_temp_mask(QPainter& painter, std::size_t index, const core::pa
         cache = mask_overlay(masks[index], subject.info, options_);
     if (!cache.isNull())
         painter.drawImage(0, 0, cache);
+}
+
+void canvas::cancel_annotation_session()
+{
+    if (!annotation_tool_.active())
+        return;
+    annotation_tool_.cancel();
+    annot_dragging_ = false;
+    // 广播 canceled:侧边栏按钮回落与选项页复位(回流时工具已取消,无递归)
+    bus_.post<core::event::tool_result_canceled>().sync();
+    update();
+}
+
+void canvas::draw_temp_annotations(QPainter& painter)
+{
+    if (!annotation_tool_.active())
+        return;
+    draw_annotations(painter, annotation_tool_.preview(), options_);
+    if (const auto* d = annotation_tool_.draft()) {
+        const std::array<const core::annotation, 1> draft { *d };
+        draw_annotations(painter, std::span<const core::annotation> { draft }, options_, true);
+    }
+}
+
+auto canvas::image_pos(const QPointF& screen, double origin) const -> QPointF
+{
+    QPointF p { (screen.x() - origin - view_.offset.x()) / view_.zoom,
+        (screen.y() - view_.offset.y()) / view_.zoom };
+    // 标注端点不得越出图像范围:鼠标可在界外,端点钉在边界内
+    if (const auto page = page_.lock()) {
+        const QSize s = oriented_size(*page);
+        p.setX(std::clamp(p.x(), 0.0, static_cast<double>(s.width()) - 1.0));
+        p.setY(std::clamp(p.y(), 0.0, static_cast<double>(s.height()) - 1.0));
+    }
+    return p;
+}
+
+auto canvas::aligned_end(const QPointF& end, Qt::KeyboardModifiers mods) const -> QPointF
+{
+    const auto* d = annotation_tool_.draft();
+    if (d == nullptr || !(mods & Qt::ShiftModifier)) // Shift:吸附主轴(水平/垂直)
+        return end;
+    const QPointF s = d->line.first;
+    return std::abs(end.x() - s.x()) >= std::abs(end.y() - s.y())
+        ? QPointF { end.x(), s.y() }
+        : QPointF { s.x(), end.y() };
 }
 
 // ─── 视图约束(旧版同款)────────────────────────────────────────────────────────
@@ -590,6 +738,7 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
         draw_temp_mask(painter, 0, *page, l6_img_); // L6:工具临时掩膜
+        draw_temp_annotations(painter); // L6:标注临时预览
         break;
 
     case core::view_mode::highlight:
@@ -600,6 +749,7 @@ void canvas::paintEvent(QPaintEvent* event)
             draw<layer::l2>(painter, *page, compare.get(), options_, l2_img_);
         draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
+        draw_temp_annotations(painter); // 标注五模式合法:预览照画
         break;
     }
 
@@ -620,6 +770,7 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
         draw_temp_mask(painter, 0, *page, l6_img_);
+        draw_temp_annotations(painter);
         painter.restore();
 
         painter.save(); // 右半:C(origin = 缝)
@@ -629,6 +780,7 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l4>(painter, *compare, nullptr, options_, l4_img_);
         draw<layer::l5>(painter, *compare, nullptr, options_, l5_img_);
         draw_temp_mask(painter, 1, *compare, l6c_img_); // L6:副侧自己的掩膜
+        draw_temp_annotations(painter); // 同一图像坐标:右半同位预览
         painter.restore();
 
         draw_seam(seam, height());
@@ -662,6 +814,12 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l5>(painter, *compare, nullptr, options_, l5_img_);
         painter.restore();
 
+        // 标注预览:与 S/C 同一坐标系,整视口一次(两侧本就同位)
+        painter.save();
+        apply_view();
+        draw_temp_annotations(painter);
+        painter.restore();
+
         draw_seam(seam, height());
         break;
     }
@@ -680,11 +838,28 @@ void canvas::mousePressEvent(QMouseEvent* event)
         panning_ = true;
         pan_last_ = event->position();
         event->accept();
+    } else if (event->button() == Qt::LeftButton && annotation_tool_.active()) {
+        // 标注起笔:以按下点定半区(split),整条手势锁定同一视口 origin
+        annot_origin_ = options_.mode == core::view_mode::split
+                && event->position().x() >= static_cast<double>(seam_x())
+            ? static_cast<double>(seam_x())
+            : 0.0;
+        annot_dragging_ = true;
+        annotation_tool_.begin_line(image_pos(event->position(), annot_origin_));
+        update();
+        event->accept();
     }
 }
 
 void canvas::mouseMoveEvent(QMouseEvent* event)
 {
+    if (annot_dragging_) {
+        annotation_tool_.move_line(
+            aligned_end(image_pos(event->position(), annot_origin_), event->modifiers()));
+        update();
+        event->accept();
+        return;
+    }
     if (!panning_)
         return;
     view_.offset += event->position() - pan_last_;
@@ -698,6 +873,12 @@ void canvas::mouseReleaseEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::RightButton && panning_) {
         panning_ = false;
+        event->accept();
+    } else if (event->button() == Qt::LeftButton && annot_dragging_) {
+        annot_dragging_ = false;
+        annotation_tool_.end_line(
+            aligned_end(image_pos(event->position(), annot_origin_), event->modifiers()));
+        update();
         event->accept();
     }
 }

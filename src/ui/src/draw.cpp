@@ -5,13 +5,16 @@
 
 #include "draw.hpp"
 
+#include <QFontMetrics>
 #include <QPainter>
+#include <QPen>
 #include <QTransform>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <utility>
+#include <vector>
 
 namespace usip::ui {
 namespace {
@@ -214,6 +217,16 @@ namespace {
         return out;
     }
 
+    // 完全相同的标注:两端点无序相等 + label 相等(apply 双写同值,精确比较即可)
+    [[nodiscard]] auto same_annotation(const core::annotation& a, const core::annotation& b)
+        -> bool
+    {
+        if (a.label != b.label)
+            return false;
+        return (a.line.first == b.line.first && a.line.second == b.line.second)
+            || (a.line.first == b.line.second && a.line.second == b.line.first);
+    }
+
 } // namespace
 
 // ─── 层绘制:cache 为空才重建该层内容 ─────────────────────────────────────────
@@ -245,8 +258,24 @@ void draw(QPainter& painter, const core::page& subject,
             cache = mask_overlay_impl(subject.mask->image, subject.info.orient, opts);
         if (!cache.isNull())
             painter.drawImage(0, 0, cache);
+    } else if constexpr (L == layer::l5) {
+        // 标注:非 single 仅画主副完全相同的部分(命中即止,O(MN))
+        if (compare != nullptr && opts.mode != core::view_mode::single) {
+            std::vector<core::annotation> same;
+            same.reserve(subject.annotations.size());
+            for (const auto& s : subject.annotations)
+                for (const auto& c : compare->annotations)
+                    if (same_annotation(s, c)) {
+                        same.push_back(s);
+                        break;
+                    }
+            draw_annotations(painter, std::span<const core::annotation> { same }, opts);
+        } else {
+            draw_annotations(
+                painter, std::span<const core::annotation> { subject.annotations }, opts);
+        }
     } else {
-        // l4/l5/l6 预留:ROI / 标注 / 临时预览,实现时在此补分支
+        // l4/l6 预留:ROI / 临时层(阈值掩膜与标注预览由 canvas 侧直绘,不走层缓存)
         (void)painter;
         (void)subject;
         (void)opts;
@@ -293,6 +322,64 @@ auto oriented_size(const core::page& page) -> QSize
 auto mask_overlay(const QImage& mask, const common::page_info& info, const options& opts) -> QImage
 {
     return mask_overlay_impl(mask, info.orient, opts);
+}
+
+// ─── 标注渲染(L5 与画布临时层共用;屏幕空间直绘)──────────────────────────────
+
+void draw_annotations(QPainter& painter, std::span<const core::annotation> annotations,
+    const options& opts, bool ghost)
+{
+    if (annotations.empty())
+        return;
+
+    const QTransform image_to_screen = painter.transform(); // canvas 预设的图像→屏幕
+    painter.save();
+    painter.resetTransform(); // 之后全部屏幕坐标:文本/虚线尺寸恒定
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    const QColor line_color = ghost ? [&] {
+        QColor c = opts.line_color;
+        c.setAlpha(150);
+        return c;
+    }() : opts.line_color;
+
+    QPen pen { line_color, static_cast<qreal>(opts.line_width), Qt::PenStyle::CustomDashLine };
+    pen.setDashPattern({ 4.0, 3.0 }); // 单位 = 线宽 → 等距虚线
+    const QPen dot_pen { QColor { line_color.darker(260) }, 1.0 };
+
+    QFont font = painter.font();
+    font.setPointSize(9);
+    font.setBold(true);
+    painter.setFont(font);
+    const QFontMetrics fm { font };
+
+    for (const auto& a : annotations) {
+        const QPointF p1 = image_to_screen.map(a.line.first);
+        const QPointF p2 = image_to_screen.map(a.line.second);
+        if (p1 == p2) // 零长(刚起笔)
+            continue;
+
+        painter.setPen(pen);
+        painter.drawLine(p1, p2);
+
+        // 端点:线色实心圆点 + 深色细描边(任意底图上可读)
+        painter.setPen(dot_pen);
+        painter.setBrush(line_color);
+        painter.drawEllipse(p1, 2.5, 2.5);
+        painter.drawEllipse(p2, 2.5, 2.5);
+        painter.setBrush(Qt::NoBrush);
+
+        if (a.label.empty())
+            continue;
+
+        // 标签:线中点上方纯文字(无背景,不遮挡图像数据)
+        const QString text = QString::fromStdString(a.label);
+        const QPoint mid { static_cast<int>((p1.x() + p2.x()) / 2.0),
+            static_cast<int>((p1.y() + p2.y()) / 2.0) };
+        painter.setPen(line_color);
+        painter.drawText(mid.x() - fm.horizontalAdvance(text) / 2, mid.y() - 10, text);
+    }
+    painter.restore();
 }
 
 }

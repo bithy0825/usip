@@ -54,6 +54,7 @@ void side_tool_bar::setup_subscriptions()
 {
     bus_.on<core::event::threshold_segment_requested>()
         .call(*this, &side_tool_bar::on_threshold_segment_requested);
+    bus_.on<core::event::measure_requested>().call(*this, &side_tool_bar::on_measure_requested);
     // 工具会话结束 → 解禁 + 按钮回落(取消勾选阻断,不回发 canceled)
     bus_.on<core::event::tool_result_applied>().call(*this, &side_tool_bar::on_tool_session_ended);
     bus_.on<core::event::tool_result_canceled>()
@@ -78,8 +79,11 @@ void side_tool_bar::setup_connections()
         else
             bus_.post<core::event::tool_result_canceled>().sync();
     });
-    connect(measure_, &QAction::triggered, this, [this] {
-        bus_.post<core::event::measure_requested>().sync();
+    connect(measure_, &QAction::toggled, this, [this](bool checked) {
+        if (checked)
+            bus_.post<core::event::measure_requested>().sync();
+        else
+            bus_.post<core::event::tool_result_canceled>().sync();
     });
 }
 
@@ -89,14 +93,21 @@ void side_tool_bar::on_threshold_segment_requested()
         action->setEnabled(false);
 }
 
+void side_tool_bar::on_measure_requested()
+{
+    for (auto* action : { rectangle_, ellipse_, polygon_, threshold_seg_ })
+        action->setEnabled(false);
+}
+
 void side_tool_bar::on_tool_session_ended()
 {
-    for (auto* action : { rectangle_, ellipse_, polygon_, measure_ })
+    for (auto* action : { rectangle_, ellipse_, polygon_, threshold_seg_, measure_ })
         action->setEnabled(true);
-    if (!threshold_seg_->isChecked())
+    if (!threshold_seg_->isChecked() && !measure_->isChecked())
         return;
-    const QSignalBlocker blocker(threshold_seg_);
+    const QSignalBlocker t(threshold_seg_), m(measure_);
     threshold_seg_->setChecked(false);
+    measure_->setChecked(false);
 }
 
 } // namespace usip::ui
