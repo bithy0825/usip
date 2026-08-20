@@ -14,6 +14,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QPixmap>
+#include <QSignalBlocker>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStackedWidget>
@@ -21,6 +22,9 @@
 #include <QWidget>
 #include <qkeysequence.h>
 #include <qnamespace.h>
+
+#include <algorithm>
+#include <ranges>
 
 namespace usip::ui {
 
@@ -85,13 +89,20 @@ void options_tool_bar::setup_ui()
     view_difference_->setCheckable(true);
     addAction(view_difference_);
 
+    // 模式数据:action → view_mode(触发时随事件发出)
+    view_none_->setData(static_cast<int>(core::view_mode::single));
+    view_split_->setData(static_cast<int>(core::view_mode::split));
+    view_slider_->setData(static_cast<int>(core::view_mode::slider));
+    view_highlight_->setData(static_cast<int>(core::view_mode::highlight));
+    view_difference_->setData(static_cast<int>(core::view_mode::difference));
+
     auto* page_label = new QLabel(tr("Compared Page"), this);
     addWidget(page_label);
 
     page_control_ = new QSpinBox(this);
-    page_control_->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    page_control_->setMinimum(1);
-    page_control_->setValue(1);
+    // page_control_->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    page_control_->setMinimum(0);
+    page_control_->setValue(0);
     addWidget(page_control_);
 
     addSeparator();
@@ -131,6 +142,9 @@ void options_tool_bar::setup_subscriptions()
     bus_.on<core::event::polygon_draw_requested>().call(this, &options_tool_bar::on_polygon_draw_requested);
     bus_.on<core::event::threshold_segment_requested>().call(this, &options_tool_bar::on_threshold_segment_requested);
     bus_.on<core::event::measure_requested>().call(this, &options_tool_bar::on_measure_requested);
+    bus_.on<core::event::document_ready>().call(this, &options_tool_bar::on_document_ready);
+    bus_.on<core::event::document_switch>().call(this, &options_tool_bar::on_document_switch);
+    bus_.on<core::event::view_mode_changed>().call(this, &options_tool_bar::on_view_mode_changed);
 }
 
 void options_tool_bar::setup_connections()
@@ -140,6 +154,18 @@ void options_tool_bar::setup_connections()
     });
     connect(cancel_, &QAction::triggered, this, [this] {
         bus_.post<core::event::tool_result_canceled>().sync();
+    });
+
+    // 视图模式组 → 细粒度事件(取消/校验失败由画布回发 single,经订阅回同步勾选)
+    connect(view_group_, &QActionGroup::triggered, this, [this](QAction* action) {
+        bus_.post<core::event::view_mode_changed>(
+                cbuspp::value<core::view_mode> {
+                    static_cast<core::view_mode>(action->data().toInt()) })
+            .sync();
+    });
+    // 对比页选择:界面与页序同为 0 起
+    connect(page_control_, &QSpinBox::valueChanged, this, [this](int value) {
+        bus_.post<core::event::compare_page_selected>(cbuspp::value<int> { value }).sync();
     });
 }
 
@@ -166,6 +192,54 @@ void options_tool_bar::on_threshold_segment_requested()
 void options_tool_bar::on_measure_requested()
 {
     options_stack_->setCurrentWidget(measure_options_);
+}
+
+void options_tool_bar::on_document_ready(
+    const cbuspp::value<std::shared_ptr<core::document>>& value)
+{
+    sync_page_control(*value);
+}
+
+void options_tool_bar::on_document_switch(
+    const cbuspp::value<std::shared_ptr<core::document>>& value)
+{
+    sync_page_control(*value); // 页切换也经 document_switch 广播,回显跟随激活页
+}
+
+// Compared Page:范围 = 0..页数-1;回显激活页已设置的对比页(信号阻断,不回发事件)
+void options_tool_bar::sync_page_control(const std::shared_ptr<core::document>& doc)
+{
+    if (!doc)
+        return;
+
+    const QSignalBlocker blocker(page_control_);
+    page_control_->setMaximum(
+        std::max(0, static_cast<int>(doc->info.pages.size()) - 1));
+
+    int current = 0;
+    if (const auto it = doc->pages.find(doc->active_page); it != doc->pages.end()) {
+        if (const auto& ct = it->second->compare_to) {
+            for (const auto& [i, pinfo] : doc->info.pages | std::views::enumerate) {
+                if (pinfo.id == *ct) {
+                    current = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+    }
+    page_control_->setValue(current);
+}
+
+// 模式事件回同步勾选态(画布拒绝模式切换时回发 single,此处落回 None)
+void options_tool_bar::on_view_mode_changed(const cbuspp::value<core::view_mode>& value)
+{
+    const auto target = static_cast<int>(*value);
+    for (QAction* action : view_group_->actions()) {
+        if (action->data().toInt() == target) {
+            action->setChecked(true);
+            return;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

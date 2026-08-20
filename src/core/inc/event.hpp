@@ -34,6 +34,10 @@ namespace event {
     CBUSPP_EVENT(page_switch_requested, "page.switch_requested", cuuidpp::uuid);
     CBUSPP_EVENT(page_rois_changed, "page.rois_changed", std::shared_ptr<page>);
 
+    // 视图模式切换(携带目标模式);对比页选择(0 起页序)
+    CBUSPP_EVENT(view_mode_changed, "view_mode.changed", view_mode);
+    CBUSPP_EVENT(compare_page_selected, "compare_page.selected", int);
+
     CBUSPP_EVENT(rectangle_draw_requested, "rectangle_draw_requested", void);
     CBUSPP_EVENT(ellipse_draw_requested, "ellipse_draw_requested", void);
     CBUSPP_EVENT(polygon_draw_requested, "polygon_draw_requested", void);

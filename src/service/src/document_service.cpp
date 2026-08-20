@@ -246,10 +246,9 @@ void document_service::on_document_switch_requested(const cbuspp::value<cuuidpp:
         return;
     }
 
-    // 非拥有别名:实体由 docs_ 持有
-    std::shared_ptr<core::document> doc_alias { &it->second, [](core::document*) { } };
+    // 共享所有权拷贝:订阅方持 weak_ptr,控制块常驻 docs_
     bus_.post<core::event::document_switch>(
-            cbuspp::value<std::shared_ptr<core::document>> { doc_alias })
+            cbuspp::value<std::shared_ptr<core::document>> { it->second })
         .with_trace_id(core::event::trace_id::document_service)
         .sync();
 }
@@ -268,13 +267,12 @@ void document_service::on_page_switch_requested(const cbuspp::value<cuuidpp::uui
         return;
     }
 
-    doc_it->second.active_page = *value;
+    doc_it->second->active_page = *value;
 
     // 复用 document_switch:画布按新 active_page 重解析、清层缓存并重新适配;
     // index_dock 同步行选择(信号阻断,不回发请求)
-    std::shared_ptr<core::document> doc_alias { &doc_it->second, [](core::document*) { } };
     bus_.post<core::event::document_switch>(
-            cbuspp::value<std::shared_ptr<core::document>> { doc_alias })
+            cbuspp::value<std::shared_ptr<core::document>> { doc_it->second })
         .with_trace_id(core::event::trace_id::document_service)
         .sync();
 }
@@ -286,7 +284,7 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
     // 同一文件不重复打开:比对已打开文档的 tiff_info 路径(词法比较,
     // 文件对话框恒返绝对路径);命中即警告并跳过本次加载
     if (std::ranges::any_of(docs_ | std::views::values,
-            [&path](const core::document& doc) { return doc.info.path == path; })) {
+            [&path](const auto& doc) { return doc->info.path == path; })) {
         common::log_warn("document is already open: '{}'", path.string());
         bus_.post<core::event::document_switch>(cbuspp::value<std::shared_ptr<core::document>> { })
             .with_trace_id(core::event::trace_id::document_service)
@@ -312,15 +310,15 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
     // 全部页释放后缓冲统一回收
     auto pixels = std::make_shared<std::vector<std::byte>>(std::move(loaded->pixels));
 
-    core::document doc;
-    doc.info = std::move(loaded->info);
+    auto doc = std::make_shared<core::document>();
+    doc->info = std::move(loaded->info);
 
     // 页先全部创建在本地:任何一页失败,局部对象析构即回滚,已打开的文档不受影响
     std::vector<core::page> pages;
-    pages.reserve(doc.info.pages.size());
+    pages.reserve(doc->info.pages.size());
 
     std::size_t offset = 0;
-    for (const auto& [i, pinfo] : doc.info.pages | std::views::enumerate) {
+    for (const auto& [i, pinfo] : doc->info.pages | std::views::enumerate) {
         const auto format = qimage_format(pinfo.klass, pinfo.format);
         if (!format) [[unlikely]] {
             auto err = common::error::make(common::errc::unsupported,
@@ -343,7 +341,7 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
 
         auto& pg = pages.emplace_back();
         pg.info = pinfo;
-        pg.doc_id = doc.info.id;
+        pg.doc_id = doc->info.id;
         pg.index = static_cast<std::uint32_t>(i);
 
         // 行紧密排列(PLANARCONFIG_CONTIG):stride = 宽 × 通道 × 样本字节
@@ -374,22 +372,21 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
     for (auto& pg : pages) {
         const auto page_id = pg.info.id;
         auto& slot = pages_.emplace(page_id, std::move(pg)).first->second;
-        doc.pages.emplace(page_id, std::shared_ptr<core::page> { &slot, [](core::page*) { } });
+        doc->pages.emplace(page_id, std::shared_ptr<core::page> { &slot, [](core::page*) { } });
     }
 
-    if (!doc.info.pages.empty()) [[likely]]
-        doc.active_page = doc.info.pages.front().id; // 默认当前页 = index 0
+    if (!doc->info.pages.empty()) [[likely]]
+        doc->active_page = doc->info.pages.front().id; // 默认当前页 = index 0
 
-    const auto doc_id = doc.info.id;
-    auto& stored = docs_.emplace(doc_id, std::move(doc)).first->second;
+    const auto doc_id = doc->info.id;
+    const auto& stored = docs_.emplace(doc_id, std::move(doc)).first->second; // owning ptr
 
     common::log_info("document ready: '{}' ({} pages)", path.string(),
-        stored.info.pages.size());
+        stored->info.pages.size());
 
-    // 非拥有别名:实体由 docs_ 持有
-    std::shared_ptr<core::document> doc_alias { &stored, [](core::document*) { } };
+    // 共享所有权拷贝:订阅方(canvas 等)持 weak_ptr 引用,控制块常驻 docs_
     bus_.post<core::event::document_ready>(
-            cbuspp::value<std::shared_ptr<core::document>> { doc_alias })
+            cbuspp::value<std::shared_ptr<core::document>> { stored })
         .with_trace_id(core::event::trace_id::document_service)
         .sync();
 }

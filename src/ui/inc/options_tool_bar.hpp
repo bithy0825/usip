@@ -3,6 +3,9 @@
 #include <QColor>
 #include <QToolBar>
 
+#include <cstdint>
+#include <memory>
+
 #include "ui_protocol.hpp"
 
 class QAction;
@@ -13,6 +16,11 @@ class QRangeSlider;
 class QSlider;
 class QToolButton;
 class QWidget;
+
+namespace usip::core { // 事件载荷前向声明
+struct document;
+enum class view_mode : std::uint8_t;
+}
 
 namespace usip::ui {
 
@@ -48,6 +56,12 @@ private:
     void on_polygon_draw_requested();
     void on_threshold_segment_requested();
     void on_measure_requested();
+
+    void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    void on_view_mode_changed(const cbuspp::value<core::view_mode>& value);
+
+    void sync_page_control(const std::shared_ptr<core::document>& doc);
 
 private:
     menu_bar& menu_bar_;
