@@ -80,6 +80,12 @@ private:
 
     std::weak_ptr<core::document> doc_ { }; // 激活文档(行 → 页解析用)
 
+    // 再点已选中行 = 取消高亮:按下时武装,双击间隔后裁决(双击编辑期抑制);
+    // 唯一事实源 = sync_highlight(选择联动与程序性删改均经此收口)
+    QTableWidget* sel_table_ { nullptr };
+    int sel_row_ { -1 };
+    bool dblclk_guard_ { false };
+
     std::unordered_map<cuuidpp::uuid, QTableWidget*> tables_ { };
 };
 

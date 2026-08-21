@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <QImage>
+#include <QPoint>
 #include <QPointF>
 
 #include <clipper2/clipper.h>
@@ -72,6 +73,14 @@ struct roi_ref {
     std::size_t roi_index { 0 };
 
     [[nodiscard]] constexpr auto operator==(const roi_ref&) const noexcept -> bool = default;
+};
+
+// ─── 光标像素取样(pixel_sample_changed 载荷;status_bar 数据源)──────────────
+// pos = 显示域像素坐标(与渲染/选区同侧);主/副取样同一坐标,副页仅非 single
+struct pixel_sample {
+    QPoint pos { };
+    std::optional<int> primary { }; // 主页灰度(非灰度页 → nullopt)
+    std::optional<int> secondary { }; // 副页灰度(single/无副页 → nullopt)
 };
 
 }

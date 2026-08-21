@@ -69,22 +69,32 @@ void options_tool_bar::setup_ui()
     view_none_ = view_group_->addAction(reg.icon("none").value_or(QIcon { }), tr("&None"));
     view_none_->setCheckable(true);
     view_none_->setChecked(true);
+    view_none_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_1));
+    view_none_->setStatusTip(tr("Single view (Ctrl+1)"));
     addAction(view_none_);
 
     view_split_ = view_group_->addAction(reg.icon("split").value_or(QIcon { }), tr("&Split"));
     view_split_->setCheckable(true);
+    view_split_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_2));
+    view_split_->setStatusTip(tr("Split view: subject left, compare right (Ctrl+2)"));
     addAction(view_split_);
 
     view_slider_ = view_group_->addAction(reg.icon("slider").value_or(QIcon { }), tr("Sli&der"));
     view_slider_->setCheckable(true);
+    view_slider_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_3));
+    view_slider_->setStatusTip(tr("Slider view: wipe between subject and compare (Ctrl+3)"));
     addAction(view_slider_);
 
     view_highlight_ = view_group_->addAction(reg.icon("highlight").value_or(QIcon { }), tr("&Highlight"));
     view_highlight_->setCheckable(true);
+    view_highlight_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_4));
+    view_highlight_->setStatusTip(tr("Highlight differences (Ctrl+4)"));
     addAction(view_highlight_);
 
     view_difference_ = view_group_->addAction(reg.icon("difference").value_or(QIcon { }), tr("&Difference"));
     view_difference_->setCheckable(true);
+    view_difference_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_5));
+    view_difference_->setStatusTip(tr("Difference view with colormap (Ctrl+5)"));
     addAction(view_difference_);
 
     // 模式数据:action → view_mode(触发时随事件发出)
@@ -120,9 +130,11 @@ void options_tool_bar::setup_ui()
 
     apply_ = new QAction(reg.icon("apply").value_or(QIcon { }), tr("&Apply"), this);
     apply_->setShortcut(QKeySequence(Qt::Key_Enter));
+    apply_->setStatusTip(tr("Apply (Enter)"));
 
     cancel_ = new QAction(reg.icon("cancel").value_or(QIcon { }), tr("&Cancel"), this);
     cancel_->setShortcut(QKeySequence(Qt::Key_Escape));
+    cancel_->setStatusTip(tr("Cancel (Esc)"));
 
     empty_ = new QWidget(this);
     draw_options_ = new draw_options(*this, bus_, this);

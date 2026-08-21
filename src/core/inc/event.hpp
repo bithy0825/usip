@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 
 #include "colormap.hpp"
@@ -88,6 +89,10 @@ CBUSPP_EVENT(annotation_visible_toggled, "annotation_visible.toggled", bool);
     // infodock 行选中 → 画布渲染期对该选区加内部蒙版(仅渲染态,不落数据);
     // nullopt = 清除高亮
     CBUSPP_EVENT(roi_highlight_changed, "roi.highlight_changed", std::optional<roi_ref>);
+    // 光标像素取样(canvas 鼠标移动广播;status_bar 右下显示):nullopt = 越界/无页
+    CBUSPP_EVENT(pixel_sample_changed, "pixel_sample.changed", std::optional<pixel_sample>);
+    // 状态栏左下短暂提示(保存/导出结果等非错误反馈;错误仍走 error_occurred)
+    CBUSPP_EVENT(status_message, "status.message", std::string);
 
     CBUSPP_EVENT(error_occurred, "error.occurred", common::error&);
 }

@@ -283,6 +283,11 @@ void register_builtin_settings(settings_registry& reg)
            "maximum number of recent file entries to keep")
         .range(1, 100);
 
+    // ── 界面(需重启:翻译在启动时装配)────────────────────────────────
+    reg.add<std::string>("ui.language", "en", "UI language: en | zh_CN")
+        .one_of({ "en", "zh_CN" })
+        .restart_required();
+
     // ── 渲染(立即生效,canvas 每帧快照读取)──────────────────────────
     reg.add<std::string>("pseudocolor.colormap", "jet",
         "pseudocolor colormap: jet | parula | viridis | plasma");

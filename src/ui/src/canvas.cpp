@@ -4,6 +4,7 @@
 // ==============================================================================
 
 #include "canvas.hpp"
+#include "orient.hpp"
 
 #include <QInputDialog>
 #include <QKeyEvent>
@@ -65,7 +66,7 @@ canvas::~canvas() = default;
 void canvas::setup_ui()
 {
     setMinimumSize(200, 200); // 防止 dock 挤压成零尺寸
-    setMouseTracking(false);
+    setMouseTracking(true); // 状态栏取样(坐标/灰度)与多边形悬停预览均需无按键移动
     setFocusPolicy(Qt::StrongFocus); // 框选会话的数字键 1-4 需键盘焦点
 
     slider_ = new QSlider(Qt::Horizontal, this);
@@ -446,7 +447,6 @@ void canvas::on_tool_result_applied()
         }
         roi_dragging_ = false;
         roi_right_armed_ = false;
-        setMouseTracking(false); // 多边形悬停预览随会话结束关闭
     }
 
     // 统一出口:apply 已处理(含无会话的误触)→ 广播"会话结束 + 当前模式"
@@ -469,7 +469,6 @@ void canvas::on_tool_result_canceled()
         roi_tool_.cancel();
         roi_dragging_ = false;
         roi_right_armed_ = false;
-        setMouseTracking(false);
     }
 
     // 统一出口:cancel 已处理(含拒绝路径的按钮回落)→ 广播"会话结束 + 当前模式"
@@ -548,8 +547,7 @@ void canvas::begin_roi_session(roi_shape shape)
         return;
     }
     setFocus(); // 数字键 1-4(运算模式)经键盘事件流入画布
-    setMouseTracking(shape == roi_shape::polygon); // 多边形:悬停连线预览需要移动事件
-    update(); // L6 进入框选预览态
+    update(); // L6 进入框选预览态(悬停连线预览:鼠标追踪常驻,无需开关)
 }
 
 void canvas::on_measure_line_width_changed(const cbuspp::value<int>& value)
@@ -675,6 +673,45 @@ auto canvas::highlight_index(const core::page& page) const -> int
     return static_cast<int>(roi_highlight_->roi_index);
 }
 
+void canvas::emit_pixel_sample(const QPointF& screen)
+{
+    std::optional<core::pixel_sample> sample;
+    if (const auto page = page_.lock()) {
+        // 手势所在半区的视口 origin(split 右半 = 缝),不做钳制:界外即隐藏
+        const double origin = gesture_origin(screen);
+        const QPointF disp { (screen.x() - origin - view_.offset.x()) / view_.zoom,
+            (screen.y() - view_.offset.y()) / view_.zoom };
+        const QSize s = oriented_size(*page);
+        if (disp.x() >= 0.0 && disp.y() >= 0.0 && disp.x() < s.width()
+            && disp.y() < s.height()) {
+            sample.emplace();
+            sample->pos = QPoint { static_cast<int>(disp.x()), static_cast<int>(disp.y()) };
+            sample->primary = sample_gray(*page, sample->pos);
+            if (options_.mode != core::view_mode::single) // 对比模式:同坐标取副页
+                if (const auto compare = compare_page_.lock())
+                    sample->secondary = sample_gray(*compare, sample->pos);
+        }
+    }
+    bus_.post<core::event::pixel_sample_changed>(
+            cbuspp::value<std::optional<core::pixel_sample>> { sample })
+        .sync();
+}
+
+auto canvas::sample_gray(const core::page& page, const QPoint& disp) -> std::optional<int>
+{
+    const QPoint p = core::display_to_storage(disp, page.info.orient, page.image.size());
+    if (p.x() < 0 || p.y() < 0 || p.x() >= page.image.width() || p.y() >= page.image.height())
+        return std::nullopt;
+    switch (page.image.format()) {
+    case QImage::Format_Grayscale8:
+        return page.image.constScanLine(p.y())[p.x()];
+    case QImage::Format_Grayscale16:
+        return reinterpret_cast<const std::uint16_t*>(page.image.constScanLine(p.y()))[p.x()];
+    default:
+        return std::nullopt; // 彩色页无灰度(状态栏仅坐标)
+    }
+}
+
 // ─── 页解析与校验 ─────────────────────────────────────────────────────────────
 
 void canvas::post_error(common::error& err)
@@ -789,7 +826,6 @@ void canvas::cancel_roi_session()
     roi_tool_.cancel();
     roi_dragging_ = false;
     roi_right_armed_ = false;
-    setMouseTracking(false);
     // 广播 canceled:侧边栏按钮回落与选项页复位(回流时工具已取消,无递归)
     bus_.post<core::event::tool_result_canceled>().sync();
     update();
@@ -1168,6 +1204,7 @@ void canvas::mouseDoubleClickEvent(QMouseEvent* event)
 
 void canvas::mouseMoveEvent(QMouseEvent* event)
 {
+    emit_pixel_sample(event->position()); // 状态栏右下:坐标 + 主/副灰度
     if (annot_dragging_) {
         annotation_tool_.move_line(
             aligned_end(image_pos(event->position(), annot_origin_), event->modifiers()));
@@ -1271,6 +1308,15 @@ void canvas::resizeEvent(QResizeEvent* event)
         clamp_offset(); // 维持"边缘不离开视口/居中"约束
     // slider 悬浮于画布底部居中(非布局子控件,手动定位)
     slider_->setGeometry(event->size().width() / 2 - 150, event->size().height() - 36, 300, 20);
+}
+
+void canvas::leaveEvent(QEvent* event)
+{
+    QWidget::leaveEvent(event);
+    // 光标离开画布:清空状态栏取样(下次进入随移动重建)
+    bus_.post<core::event::pixel_sample_changed>(
+            cbuspp::value<std::optional<core::pixel_sample>> { std::nullopt })
+        .sync();
 }
 
 }

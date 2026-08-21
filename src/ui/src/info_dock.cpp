@@ -3,6 +3,7 @@
 #include "icon_registry.hpp"
 
 #include <QAction>
+#include <QApplication>
 #include <QBrush>
 #include <QFont>
 #include <QGridLayout>
@@ -11,6 +12,7 @@
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QTableWidget>
+#include <QTimer>
 #include <QVariant>
 
 #include <algorithm>
@@ -197,28 +199,11 @@ void info_dock::on_tool_session_ended(const cbuspp::value<core::view_mode>&)
 QTableWidget* info_dock::make_table(QWidget* parent)
 {
     auto* table = new QTableWidget(parent);
-    table->setMinimumWidth(560);
     table->setColumnCount(11);
     table->setHorizontalHeaderLabels({ tr("Index"), tr("Number"), tr("Floor"), tr("Ceil"),
         tr("Pixel"), tr("Valid"), tr("Percent(%)"), tr("Mean"), tr("Std"), tr("Min"),
         tr("Max") });
-
-    QHeaderView* header = table->horizontalHeader();
-
-    const QList<int> fixedCols = { col::index, col::number, col::floor, col::ceil, col::percent,
-        col::mean, col::stddev, col::min, col::max };
-    for (const int c : fixedCols) {
-        table->resizeColumnToContents(c); // 此时无数据,仅依据表头标签
-        header->setSectionResizeMode(c, QHeaderView::Fixed); // 锁定宽度,不再变化
-    }
-    // 数据宽于表头的列兜底(均值/标准差 6 位有效数字,百分比 4 位小数)
-    for (const int c : { col::percent, col::mean, col::stddev })
-        if (header->sectionSize(c) < 72)
-            header->resizeSection(c, 72);
-
-    header->setSectionResizeMode(col::pixel, QHeaderView::Stretch);
-    header->setSectionResizeMode(col::valid, QHeaderView::Stretch);
-    header->setStretchLastSection(false);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); // 列宽自适应(同 index_dock)
 
     // 一次只选整行;仅 Floor/Ceil 两列可编辑(其余列逐格摘除可编辑标志)
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -232,6 +217,20 @@ QTableWidget* info_dock::make_table(QWidget* parent)
         [this, table](QTableWidgetItem* item) { on_range_edited(*table, item); });
     // 行选中 → 广播高亮(渲染期蒙版;无选中 → 清除)
     connect(table, &QTableWidget::itemSelectionChanged, this, [this] { sync_highlight(); });
+    // 再点已选中行 = 取消高亮:按下武装,双击间隔后裁决;双击(Floor/Ceil 编辑)抑制
+    connect(table, &QTableWidget::itemPressed, this, [this, table](QTableWidgetItem* item) {
+        if (!item || table != sel_table_ || item->row() != sel_row_ || sel_row_ < 0)
+            return; // 非"再点已选中行"
+        dblclk_guard_ = false;
+        const int armed_row = sel_row_;
+        QTimer::singleShot(QApplication::doubleClickInterval(), this, [this, table, armed_row] {
+            if (dblclk_guard_ || table != sel_table_ || armed_row != sel_row_)
+                return; // 双击编辑 / 选择已迁移:不裁决
+            table->clearSelection();
+            table->setCurrentIndex(QModelIndex { }); // 彻底无当前行(选择联动清高亮)
+        });
+    });
+    connect(table, &QTableWidget::itemDoubleClicked, this, [this] { dblclk_guard_ = true; });
     // 行右键 → 选中该行并弹出删除菜单
     connect(table, &QTableWidget::customContextMenuRequested, this,
         [this, table](const QPoint& pos) {
@@ -385,10 +384,16 @@ auto info_dock::row_ref(const QTableWidget& table, int row) -> std::optional<cor
 
 void info_dock::sync_highlight()
 {
+    // 选中态唯一事实源:选择联动与程序性删改(删行/清空/切表)均经此收口
+    auto* table = qobject_cast<QTableWidget*>(stacked_->currentWidget());
+    if (table == empty_)
+        table = nullptr;
+    sel_table_ = table;
+    sel_row_ = table ? table->currentRow() : -1;
+
     std::optional<core::roi_ref> highlight;
-    if (const auto* table = qobject_cast<QTableWidget*>(stacked_->currentWidget());
-        table && table != empty_)
-        highlight = row_ref(*table, table->currentRow());
+    if (table)
+        highlight = row_ref(*table, sel_row_);
     bus_.post<core::event::roi_highlight_changed>(
             cbuspp::value<std::optional<core::roi_ref>> { highlight })
         .sync();

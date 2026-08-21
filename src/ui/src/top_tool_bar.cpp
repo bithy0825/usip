@@ -79,6 +79,7 @@ void top_tool_bar::setup_ui()
     colormap_button_ = new QToolButton(this);
     colormap_button_->setIconSize(icon_size);
     colormap_button_->setToolTip(tr("Pseudocolor colormap"));
+    colormap_button_->setStatusTip(tr("Pseudocolor colormap"));
 
     auto* menu = new QMenu(colormap_button_);
     auto* group = new QActionGroup(menu);

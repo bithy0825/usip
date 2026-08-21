@@ -1,5 +1,7 @@
 #include "main_window.hpp"
+#include "about_dialog.hpp"
 #include "canvas.hpp"
+#include "export_dialog.hpp"
 #include "hist_dock.hpp"
 #include "icon_registry.hpp"
 #include "index_dock.hpp"
@@ -10,6 +12,14 @@
 #include "side_tool_bar.hpp"
 #include "status_bar.hpp"
 #include "top_tool_bar.hpp"
+#include "utility.hpp"
+
+#include <QAction>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QStandardPaths>
+
+#include <format>
 
 namespace usip::ui {
 
@@ -20,6 +30,7 @@ main_window::main_window(
 {
     setup_ui();
     setup_subscriptions();
+    setup_connections();
 }
 
 main_window::~main_window() = default;
@@ -29,6 +40,8 @@ void main_window::setup_ui()
     if (auto r = icon_registry::instance().scan(); !r) {
         common::log_warn("icon scan failed: {}", r.error());
     }
+    if (const auto app_icon = icon_registry::instance().icon("app"))
+        setWindowIcon(*app_icon);
 
     canvas_ = new canvas(bus_, this); // 中央画布(渲染管线宿主)
     setCentralWidget(canvas_);
@@ -60,6 +73,97 @@ void main_window::setup_ui()
     setStatusBar(status_bar_);
 }
 
-void main_window::setup_subscriptions() { }
+void main_window::setup_subscriptions()
+{
+    bus_.on<core::event::document_ready>().call(*this, &main_window::on_document_ready);
+    bus_.on<core::event::document_switch>().call(*this, &main_window::on_document_switch);
+}
+
+void main_window::setup_connections()
+{
+    // 文件动作(save/export 须触碰窗口/画布/激活文档,归本类;about 同理)
+    connect(menu_bar_->save_action(), &QAction::triggered, this,
+        [this] { on_save_screenshot(); });
+    connect(menu_bar_->save_as_action(), &QAction::triggered, this,
+        [this] { on_save_screenshot_as(); });
+    connect(menu_bar_->export_action(), &QAction::triggered, this, [this] { on_export(); });
+    connect(menu_bar_->about_action(), &QAction::triggered, this, [this] { on_about(); });
+}
+
+void main_window::on_document_ready(
+    const cbuspp::value<std::shared_ptr<core::document>>& value)
+{
+    if (*value)
+        doc_ = *value;
+}
+
+void main_window::on_document_switch(
+    const cbuspp::value<std::shared_ptr<core::document>>& value)
+{
+    if (*value) // 空载荷(如重复打开的提醒)不改跟踪
+        doc_ = *value;
+}
+
+auto main_window::screenshot_default_base() const -> QString
+{
+    if (const auto doc = doc_.lock()) {
+        const auto& src = doc->info.path;
+        return QString::fromStdString(common::path_to_utf8(src.parent_path())) + "/"
+            + QString::fromStdString(common::path_to_utf8(src.stem())) + "_screenshot";
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)
+        + "/usip_screenshot";
+}
+
+void main_window::on_save_screenshot()
+{
+    // 首个未占用名:base.png → base_1.png …(直存不弹框,不覆盖旧件)
+    const QString base = screenshot_default_base();
+    for (int n = 0; n < 1000; ++n) {
+        const QString path = n == 0 ? base + ".png"
+                                    : QStringLiteral("%1_%2.png").arg(base).arg(n);
+        if (!QFileInfo::exists(path)) {
+            save_screenshot_to(path);
+            return;
+        }
+    }
+}
+
+void main_window::on_save_screenshot_as()
+{
+    QString path = QFileDialog::getSaveFileName(this, tr("Save Screenshot"),
+        screenshot_default_base() + ".png", tr("PNG Image (*.png)"));
+    if (path.isEmpty())
+        return;
+    if (!path.endsWith(".png", Qt::CaseInsensitive))
+        path += ".png";
+    save_screenshot_to(path);
+}
+
+void main_window::save_screenshot_to(const QString& path)
+{
+    if (grab().toImage().save(path, "PNG")) {
+        bus_.post<core::event::status_message>(cbuspp::value<std::string> {
+                                                   std::format("Screenshot saved: {}",
+                                                       path.toUtf8().toStdString()) })
+            .sync();
+        return;
+    }
+    auto err = common::error::make(common::errc::io, "failed to save screenshot: {}",
+        path.toUtf8().toStdString());
+    bus_.post<core::event::error_occurred>(cbuspp::value<common::error&> { err }).sync();
+}
+
+void main_window::on_export()
+{
+    export_dialog dlg { bus_, doc_.lock(), canvas_, this };
+    dlg.exec();
+}
+
+void main_window::on_about()
+{
+    about_dialog dlg { this };
+    dlg.exec();
+}
 
 }

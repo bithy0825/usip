@@ -4,6 +4,7 @@
 // ==============================================================================
 
 #include "draw.hpp"
+#include "orient.hpp"
 
 #include <QFontMetrics>
 #include <QPainter>
@@ -21,37 +22,6 @@
 namespace usip::ui {
 namespace {
 
-    // TIFF orientation → 显示变换(基线 top_left)
-    [[nodiscard]] auto orient_transform(common::orientation orient) -> QTransform
-    {
-        using enum common::orientation;
-        switch (orient) {
-        [[likely]] case top_left:
-            return { };
-        case top_right:
-            return QTransform::fromScale(-1.0, 1.0); // 水平镜像
-        case bottom_right:
-            return QTransform::fromScale(-1.0, -1.0); // 旋转 180°
-        case bottom_left:
-            return QTransform::fromScale(1.0, -1.0); // 垂直镜像
-        case left_top:
-            return { 0.0, 1.0, 1.0, 0.0, 0.0, 0.0 }; // 转置
-        case right_top: {
-            QTransform t;
-            t.rotate(90.0);
-            return t;
-        }
-        case right_bottom:
-            return { 0.0, -1.0, -1.0, 0.0, 0.0, 0.0 }; // 反转置
-        case left_bottom: {
-            QTransform t;
-            t.rotate(270.0);
-            return t;
-        }
-        }
-        std::unreachable();
-    }
-
     // 像素进入显示域的第一步:orient + MINISWHITE 反相(zero_is_white 属显示
     // 侧职责,不碰存储像素)
     [[nodiscard]] auto oriented_display(QImage img, common::orientation orient,
@@ -59,7 +29,7 @@ namespace {
     {
         if (img.isNull())
             return { };
-        img = img.transformed(orient_transform(orient));
+        img = img.transformed(core::orient_transform(orient));
         if (zero_is_white)
             img.invertPixels(QImage::InvertRgb);
         return img;
@@ -139,7 +109,7 @@ namespace {
                 if (src[x] != 0)
                     dst[x] = word;
         }
-        return overlay.transformed(orient_transform(orient));
+        return overlay.transformed(core::orient_transform(orient));
     }
 
     // 差值:(主+255)-副 ∈ [0,510] 存 Grayscale16(255 = 零差异);尺寸不一致 → 空

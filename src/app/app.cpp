@@ -1,11 +1,14 @@
 #include "app.hpp"
 
 #include <QApplication>
+#include <QTranslator>
 
 #include "executor.hpp"
 #include "platform/system.hpp"
 
 namespace usip::app {
+
+application::application() = default;
 
 application::~application()
 {
@@ -96,6 +99,17 @@ auto application::init(int& argc, char** argv) -> result<>
         });
         !r)
         return std::unexpected(std::move(r).error());
+
+    // ── 界面翻译(config ui.language;zh_CN 装资源翻译,en = 英文源串不装)────
+    if (config_->get<std::string>("ui.language") == "zh_CN") {
+        translator_ = std::make_unique<QTranslator>();
+        if (translator_->load(QStringLiteral(":/i18n/usip_zh_CN.qm"))) {
+            QCoreApplication::installTranslator(translator_.get());
+        } else {
+            common::log_warn("failed to load translation: :/i18n/usip_zh_CN.qm");
+            translator_.reset();
+        }
+    }
 
     if (auto r = common::capture([&] {
             ui_ = std::make_unique<ui::main_window>(*bus_);

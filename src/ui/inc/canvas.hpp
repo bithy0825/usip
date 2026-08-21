@@ -73,6 +73,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void leaveEvent(QEvent* event) override;
 
 private:
     // ── 总线回调 ───────────────────────────────────────────────────────────
@@ -125,6 +126,12 @@ private:
     void on_roi_highlight_changed(const cbuspp::value<std::optional<core::roi_ref>>& value);
     // 该页当前应高亮的选区下标(无/不属于该页 = -1;draw_rois 末参)
     [[nodiscard]] auto highlight_index(const core::page& page) const -> int;
+    // 光标取样广播(status_bar 右下):屏幕坐标 → 显示域像素 → 主/副灰度;
+    // 越界/无页 → nullopt(状态栏清空)
+    void emit_pixel_sample(const QPointF& screen);
+    // 显示域像素坐标 → 该页存储域灰度(orient 逆映射;非灰度页 → nullopt)
+    [[nodiscard]] static auto sample_gray(const core::page& page, const QPoint& disp)
+        -> std::optional<int>;
 
     // doc_ → page_(active_page)与 compare_page_(compare_to);无则置空
     void resolve_pages();

@@ -13,12 +13,13 @@
 #include "service.hpp"
 
 class QApplication; // 前置:qt_app_ 以 unique_ptr 持有,完整析构定义在 .cpp
+class QTranslator; // 前置:同上
 
 namespace usip::app {
 
 class application {
 public:
-    application() = default;
+    application(); // 定义在 .cpp(translation 成员为前置声明,析构/构造须见完整类型)
     ~application();
 
     application(const application&) = delete;
@@ -30,6 +31,7 @@ public:
 private:
     // 声明序 = 逆序析构序;qt_app_ 最先声明 → 最后析构(QWidget 须先于 QApplication 销毁)
     std::unique_ptr<QApplication> qt_app_ { nullptr };
+    std::unique_ptr<QTranslator> translator_ { nullptr }; // 界面翻译(随 ui.language 装配)
     std::unique_ptr<core::config> config_ { nullptr }; // config 含 atomic 成员不可移动,指针持有
     std::optional<common::logger> logger_ { }; // logger 可移动,optional 持有
     std::unique_ptr<common::executor> executor_ { nullptr };

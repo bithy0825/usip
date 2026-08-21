@@ -28,14 +28,17 @@ void side_tool_bar::setup_ui()
     // ── 绘制工具 ─────────────────────────────────────────────────────
     rectangle_ = addAction(reg.icon("rectangle").value_or(QIcon { }), tr("&Rectangle"));
     rectangle_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_R));
+    rectangle_->setStatusTip(tr("Rectangle selection (Alt+R)"));
     rectangle_->setCheckable(true);
 
     ellipse_ = addAction(reg.icon("ellipse").value_or(QIcon { }), tr("&Ellipse"));
     ellipse_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_E));
+    ellipse_->setStatusTip(tr("Ellipse selection (Alt+E)"));
     ellipse_->setCheckable(true);
 
     polygon_ = addAction(reg.icon("polygon").value_or(QIcon { }), tr("&Polygon"));
     polygon_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_P));
+    polygon_->setStatusTip(tr("Polygon selection (Alt+P)"));
     polygon_->setCheckable(true);
 
     addSeparator();
@@ -43,10 +46,12 @@ void side_tool_bar::setup_ui()
     // ── 叠加工具 ─────────────────────────────────────────────────────
     threshold_seg_ = addAction(reg.icon("threshold_segmentation").value_or(QIcon { }), tr("&Threshold Segmentation"));
     threshold_seg_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_M));
+    threshold_seg_->setStatusTip(tr("Threshold segmentation (Alt+M)"));
     threshold_seg_->setCheckable(true);
 
     measure_ = addAction(reg.icon("measure").value_or(QIcon { }), tr("M&easure"));
     measure_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_D));
+    measure_->setStatusTip(tr("Measure distance (Alt+D)"));
     measure_->setCheckable(true);
 }
 

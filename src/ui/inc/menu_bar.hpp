@@ -7,6 +7,7 @@
 
 class QMenu;
 class QAction;
+class QActionGroup;
 
 namespace usip::ui {
 
@@ -67,6 +68,7 @@ private:
     QAction* annotation_ { nullptr };
     QAction* clear_constituency_ { nullptr };
     QAction* clear_measurements_ { nullptr };
+    QActionGroup* language_group_ { nullptr }; // View 底部:English/中文 互斥勾选
 
     QAction* about_ { nullptr };
 };

@@ -3,6 +3,7 @@
 // ==============================================================================
 
 #include "roi_stats.hpp"
+#include "orient.hpp"
 
 #include <QColor>
 #include <QImage>
@@ -22,38 +23,6 @@ namespace usip::core {
 namespace {
 
     namespace hn = hwy::HWY_NAMESPACE; // 静态分派(/arch:AVX2 基线),用法同 colormap
-
-    // TIFF orientation → 显示变换(与 ui/draw.cpp 同款;选区坐标 = 显示域坐标,
-    // 像素面须先对齐再统计;基线 top_left 由调用方短路,不进此函数)
-    [[nodiscard]] auto orient_transform(common::orientation orient) -> QTransform
-    {
-        using enum common::orientation;
-        switch (orient) {
-        [[likely]] case top_left:
-            return { };
-        case top_right:
-            return QTransform::fromScale(-1.0, 1.0); // 水平镜像
-        case bottom_right:
-            return QTransform::fromScale(-1.0, -1.0); // 旋转 180°
-        case bottom_left:
-            return QTransform::fromScale(1.0, -1.0); // 垂直镜像
-        case left_top:
-            return { 0.0, 1.0, 1.0, 0.0, 0.0, 0.0 }; // 转置
-        case right_top: {
-            QTransform t;
-            t.rotate(90.0);
-            return t;
-        }
-        case right_bottom:
-            return { 0.0, -1.0, -1.0, 0.0, 0.0, 0.0 }; // 反转置
-        case left_bottom: {
-            QTransform t;
-            t.rotate(270.0);
-            return t;
-        }
-        }
-        std::unreachable();
-    }
 
     // 单行统计累加器(vmin/vmax 仅 valid 车道参与;全行无有效像素时保持初值)
     struct accum {
@@ -219,7 +188,6 @@ auto compute_roi_stats(const core::page& page, std::size_t roi_index,
     QImage oriented = page.image;
     if (page.info.orient != common::orientation::top_left) [[unlikely]]
         oriented = page.image.transformed(orient_transform(page.info.orient));
-
     std::vector<std::uint8_t> plane;
     int width = 0, height = 0;
     if (!to_threshold_plane(oriented, plane, width, height)) [[unlikely]]

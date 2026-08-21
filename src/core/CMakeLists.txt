@@ -22,6 +22,7 @@ target_sources(usip_core
             inc/document.hpp
             inc/colormap.hpp
             inc/roi_stats.hpp
+            inc/orient.hpp
             inc/view_mode.hpp
 )
 

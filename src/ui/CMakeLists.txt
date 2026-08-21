@@ -16,6 +16,8 @@ target_sources(usip_ui
         src/canvas.cpp
         src/draw.cpp
         src/status_bar.cpp
+        src/about_dialog.cpp
+        src/export_dialog.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS inc
@@ -34,6 +36,8 @@ target_sources(usip_ui
             inc/canvas.hpp
             inc/draw.hpp
             inc/status_bar.hpp
+            inc/about_dialog.hpp
+            inc/export_dialog.hpp
 )
 
 # 自动收集 icon 目录下的 SVG,编译进 Qt 资源(:/icon/<name>.svg)
@@ -43,6 +47,15 @@ qt_add_resources(usip_ui "usip_icons"
     PREFIX "/"
     BASE "${CMAKE_SOURCE_DIR}/assets"
     FILES ${USIP_ICON_SVGS}
+)
+
+# 翻译产物(.ts 源在 assets/i18n/,经 lrelease 编译为 .qm 后随资源嵌入:
+# :/i18n/<name>.qm;新增/更新字符串时重跑 lupdate + lrelease 再提交)
+file(GLOB USIP_I18N_QMS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/assets/i18n/*.qm")
+qt_add_resources(usip_ui "usip_i18n"
+    PREFIX "/"
+    BASE "${CMAKE_SOURCE_DIR}/assets"
+    FILES ${USIP_I18N_QMS}
 )
 
 target_include_directories(usip_ui
@@ -60,7 +73,11 @@ target_link_libraries(usip_ui
     PRIVATE
         usip::tool # 阈值分割等画布工具(实现细节,不入接口)
         3rdparty::magic_enum # colormap 按钮的枚举遍历(实现细节,不入接口)
+        3rdparty::tiff # 导出对话框的多页 TIFF 写出(实现细节,不入接口)
 )
+
+# 版本头(about_dialog 引用 <usip/version.hpp>)
+usip_add_version_header(usip_ui)
 
 # PCH 组合:标准库 + 通用第三方(不引入 Qt,保持依赖卫生)
 usip_apply_pch(usip_ui)

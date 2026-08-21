@@ -6,6 +6,8 @@
 #include "utility.hpp"
 
 #include <QAction>
+#include <QActionGroup>
+#include <QCoreApplication>
 #include <QMenu>
 #include <qnamespace.h>
 
@@ -28,44 +30,78 @@ void menu_bar::setup_ui()
     auto file_menu = addMenu(tr("&File"));
     open_ = file_menu->addAction(reg.icon("open").value_or(QIcon { }), tr("&Open..."));
     open_->setShortcut(QKeySequence::Open);
+    open_->setStatusTip(tr("Open a TIFF file (Ctrl+O)"));
     recent_ = file_menu->addMenu(tr("&Recent"));
     file_menu->addSeparator();
     save_ = file_menu->addAction(reg.icon("save").value_or(QIcon { }), tr("&Save"));
     save_->setShortcut(QKeySequence::Save);
+    save_->setStatusTip(tr("Save a window screenshot to the default path (Ctrl+S)"));
     save_as_ = file_menu->addAction(reg.icon("save_as").value_or(QIcon { }), tr("Save &As..."));
     save_as_->setShortcut(QKeySequence::SaveAs);
+    save_as_->setStatusTip(tr("Save a window screenshot to a chosen path (Ctrl+Shift+S)"));
     export_ = file_menu->addAction(reg.icon("export").value_or(QIcon { }), tr("&Export..."));
-    export_->setShortcut(QKeySequence::Print);
+    export_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_E));
+    export_->setStatusTip(tr("Advanced export: content, pages and format (Ctrl+E)"));
     file_menu->addSeparator();
     close_ = file_menu->addAction(reg.icon("close").value_or(QIcon { }), tr("&Close"));
     close_->setShortcut(QKeySequence::Close);
     exit_ = file_menu->addAction(reg.icon("exit").value_or(QIcon { }), tr("E&xit"));
     exit_->setShortcut(QKeySequence::Quit);
+    exit_->setStatusTip(tr("Exit USIP (Ctrl+Q)"));
 
     auto view_menu = addMenu(tr("&View"));
     pseudocolor_ = view_menu->addAction(reg.icon("pseudocolor").value_or(QIcon { }), tr("&Pseudocolor"));
     pseudocolor_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_S));
+    pseudocolor_->setStatusTip(tr("Toggle pseudocolor (Shift+S)"));
     pseudocolor_->setCheckable(true);
     pseudocolor_->setChecked(false);
     zero_is_black_ = view_menu->addAction(reg.icon("zero_is_black").value_or(QIcon { }), tr("&Zero is Black"));
+    zero_is_black_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_B));
+    zero_is_black_->setStatusTip(tr("Map zero to black in pseudocolor (Shift+B)"));
     zero_is_black_->setCheckable(true);
     zero_is_black_->setChecked(core::config::global()->get<bool>("pseudocolor.zero_is_black"));
     mask_ = view_menu->addAction(reg.icon("mask").value_or(QIcon { }), tr("&Mask"));
     mask_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_M));
+    mask_->setStatusTip(tr("Toggle threshold mask overlay (Shift+M)"));
     mask_->setCheckable(true);
     mask_->setChecked(false);
     roi_ = view_menu->addAction(reg.icon("roi").value_or(QIcon { }), tr("&ROI"));
+    roi_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_R));
+    roi_->setStatusTip(tr("Toggle ROI overlay (Shift+R)"));
     roi_->setCheckable(true);
     roi_->setChecked(true); // L4 默认可见(开关控制渲染,五模式皆受控)
     annotation_ = view_menu->addAction(reg.icon("annotation").value_or(QIcon { }), tr("&Annotation"));
+    annotation_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_A));
+    annotation_->setStatusTip(tr("Toggle annotation overlay (Shift+A)"));
     annotation_->setCheckable(true);
     annotation_->setChecked(true); // L5 默认可见(同上)
     view_menu->addSeparator();
     clear_constituency_ = view_menu->addAction(reg.icon("clear_constituency").value_or(QIcon { }), tr("Clear &Constituency"));
+    clear_constituency_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C));
+    clear_constituency_->setStatusTip(tr("Clear all ROIs of the current page(s) (Ctrl+Shift+C)"));
     clear_measurements_ = view_menu->addAction(reg.icon("clear_measurement").value_or(QIcon { }), tr("Clear &Measurements"));
+    clear_measurements_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
+    clear_measurements_->setStatusTip(tr("Clear all measurements of the current page(s) (Ctrl+Shift+M)"));
+
+    // 语言(View 底部;互斥勾选;重启后生效 —— 翻译在启动时装配)
+    view_menu->addSeparator();
+    auto* language_menu = view_menu->addMenu(tr("&Language"));
+    language_group_ = new QActionGroup(this);
+    language_group_->setExclusive(true);
+    const auto current_lang = core::config::global()->get<std::string>("ui.language");
+    for (const auto& [lang, label] :
+        { std::pair { "en", tr("&English") }, std::pair { "zh_CN", QString::fromUtf8("中文") } }) {
+        auto* action = language_menu->addAction(label);
+        action->setCheckable(true);
+        action->setChecked(current_lang == lang);
+        action->setData(QString::fromLatin1(lang));
+        language_group_->addAction(action);
+    }
 
     auto help_menu = addMenu(tr("&Help"));
     about_ = help_menu->addAction(reg.icon("about").value_or(QIcon { }), tr("&About"));
+    about_->setShortcut(QKeySequence::HelpContents); // F1
+    about_->setStatusTip(tr("About USIP (F1)"));
 
     update_recent_menu(); // 启动即从 config 恢复最近文件,而非等到首次打开
 }
@@ -80,6 +116,8 @@ void menu_bar::setup_connections()
     connect(open_, &QAction::triggered, this, [this]() {
         bus_.post<core::event::file_open_requested>().sync();
     });
+    // 退出 = 结束应用事件循环(配置等收尾在 application 析构)
+    connect(exit_, &QAction::triggered, qApp, &QCoreApplication::quit);
 
     // 视图开关 → 细粒度渲染事件(画布订阅;已注册的键顺手持久化)
     connect(pseudocolor_, &QAction::triggered, this, [this](bool checked) {
@@ -112,6 +150,19 @@ void menu_bar::setup_connections()
             !r) {
             common::log_warn("set pseudocolor.zero_is_black failed: {}", r.error());
         }
+    });
+
+    // 语言切换:写 config(重启生效;翻译装配在启动期)并提示
+    connect(language_group_, &QActionGroup::triggered, this, [this](QAction* action) {
+        const auto lang = action->data().toString().toStdString();
+        if (auto r = core::config::global()->set<std::string>("ui.language", lang); !r) {
+            common::log_warn("set ui.language failed: {}", r.error());
+            return;
+        }
+        bus_.post<core::event::status_message>(cbuspp::value<std::string> {
+                                                   "Language will take effect after restart. / "
+                                                   "语言将在重启后生效。" })
+            .sync();
     });
 }
 
