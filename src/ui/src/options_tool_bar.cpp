@@ -20,8 +20,6 @@
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QWidget>
-#include <qkeysequence.h>
-#include <qnamespace.h>
 
 #include <algorithm>
 #include <ranges>

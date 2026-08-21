@@ -94,10 +94,12 @@ void draw_annotations(QPainter& painter, std::span<const core::annotation> annot
 // 边),ants_offset 为动画相位(画布蚂蚁线定时器推进,模 ants_offset_cycle)。
 // opts.roi_visible = false 时整层不画(五模式皆受控)。compare_rois 非 null
 // (非 single 模式)时仅画两页完全相同的选区(逐点精确比较;apply 双写
-// 同值拷贝保证公有项成立),独有项不显示。经 painter 现有变换映射到屏幕
-// 坐标后直绘,尺寸屏幕恒定
+// 同值拷贝保证公有项成立),独有项不显示。highlight ≥ 0(infodock 行选中)
+// 时,该编号选区在蚂蚁线之内再填一层高透明蒙版(同色,仅渲染态,不落数
+// 据)以加强显示。经 painter 现有变换映射到屏幕坐标后直绘,尺寸屏幕恒定
 void draw_rois(QPainter& painter, std::span<const core::roi> rois,
-    const std::vector<core::roi>* compare_rois, const options& opts, int ants_offset);
+    const std::vector<core::roi>* compare_rois, const options& opts, int ants_offset,
+    int highlight);
 
 // 蚂蚁线相位周期(= 虚线模式 {4,4} 的一整个实+空段;画布定时器按此取模)
 inline constexpr int ants_offset_cycle { 8 };

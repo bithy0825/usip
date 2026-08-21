@@ -250,6 +250,9 @@ namespace {
     // offset 周期 ants_offset_cycle 见 draw.hpp(画布定时器共用)
     constexpr qreal roi_pen_width { 2.0 };
 
+    // 高亮蒙版不透明度(infodock 行选中;约 62% 透明,加强显示且不遮图像数据)
+    constexpr int highlight_fill_alpha { 96 };
+
     // 图像坐标 PathsD → 屏幕 QPainterPath(t = canvas 预设的图像→屏幕变换);
     // 奇偶填充(Clipper2 输出孔洞与外圈方向相反,两种规则皆正确)
     [[nodiscard]] auto mapped_roi_path(const Clipper2Lib::PathsD& paths, const QTransform& t)
@@ -429,7 +432,8 @@ void draw_annotations(QPainter& painter, std::span<const core::annotation> annot
 // ─── ROI 渲染(L4 持久层与画布临时层共用;屏幕空间直绘)──────────────────────
 
 void draw_rois(QPainter& painter, std::span<const core::roi> rois,
-    const std::vector<core::roi>* compare_rois, const options& opts, int ants_offset)
+    const std::vector<core::roi>* compare_rois, const options& opts, int ants_offset,
+    int highlight)
 {
     if (rois.empty() || !opts.roi_visible)
         return;
@@ -450,8 +454,17 @@ void draw_rois(QPainter& painter, std::span<const core::roi> rois,
         if (pp.isEmpty())
             continue;
 
+        const QColor color = core::roi_color(i);
+
+        // 高亮(infodock 行选中):蚂蚁线之内加一层同色高透明蒙版(仅渲染态)
+        if (static_cast<int>(i) == highlight) {
+            QColor fill { color };
+            fill.setAlpha(highlight_fill_alpha);
+            painter.fillPath(pp, fill);
+        }
+
         // 蚂蚁线:颜色按 vector 编号;空段 = 不绘制(无底描边)
-        QPen pen { core::roi_color(i), roi_pen_width, Qt::PenStyle::CustomDashLine };
+        QPen pen { color, roi_pen_width, Qt::PenStyle::CustomDashLine };
         pen.setDashPattern({ 4.0, 4.0 }); // 单位 = 线宽 → 屏幕 8px 实/8px 空
         pen.setDashOffset(static_cast<qreal>(ants_offset));
         painter.setPen(pen);

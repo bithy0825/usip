@@ -110,6 +110,9 @@ void canvas::setup_subscriptions()
     bus_.on<core::event::ellipse_draw_requested>().call(*this, &canvas::on_ellipse_draw_requested);
     bus_.on<core::event::polygon_draw_requested>().call(*this, &canvas::on_polygon_draw_requested);
     bus_.on<core::event::rois_clear_requested>().call(*this, &canvas::on_rois_clear_requested);
+    bus_.on<core::event::roi_delete_requested>().call(*this, &canvas::on_roi_delete_requested);
+    bus_.on<core::event::roi_highlight_changed>()
+        .call(*this, &canvas::on_roi_highlight_changed);
     bus_.on<core::event::step_x_changed>().call(*this, &canvas::on_step_x_changed);
     bus_.on<core::event::step_y_changed>().call(*this, &canvas::on_step_y_changed);
     bus_.on<core::event::measurements_clear_requested>()
@@ -424,21 +427,21 @@ void canvas::on_tool_result_applied()
         annot_dragging_ = false;
     } else if (roi_tool_.active()) {
         if (auto r = roi_tool_.apply(); r) {
-            // 空结果(会话内未落任何矩形)不落盘
+            // 空结果(会话内未落任何形状)不落盘
             if (const auto page = page_.lock(); page && !r->region.path.empty()) {
+                page->rois.push_back(std::move(r->region));
+                bus_.post<core::event::page_rois_changed>(
+                    cbuspp::value<std::shared_ptr<core::page>> { page })
+                    .sync();
                 // 对比模式:同值双写(两侧公有,各半同现);single 只写主页
                 if (options_.mode != core::view_mode::single) {
                     if (const auto compare = compare_page_.lock()) {
-                        compare->rois.push_back(r->region);
+                        compare->rois.push_back(page->rois.back());
                         bus_.post<core::event::page_rois_changed>(
                             cbuspp::value<std::shared_ptr<core::page>> { compare })
                             .sync();
                     }
                 }
-                page->rois.push_back(std::move(r->region));
-                bus_.post<core::event::page_rois_changed>(
-                    cbuspp::value<std::shared_ptr<core::page>> { page })
-                    .sync();
             } // 页已失效:结果丢弃
         }
         roi_dragging_ = false;
@@ -626,7 +629,50 @@ void canvas::on_rois_clear_requested()
         }
     }
     if (touched)
-        update();
+        update(); // 高亮随 infodock 删行后的选择联动重广播,此处无需干预
+}
+
+void canvas::on_roi_delete_requested(const cbuspp::value<core::roi_ref>& value)
+{
+    const auto doc = doc_.lock();
+    if (!doc)
+        return;
+    const auto it = doc->pages.find(value->page_id);
+    if (it == doc->pages.end()) [[unlikely]]
+        return;
+    const auto& page = it->second;
+    if (value->roi_index >= page->rois.size()) [[unlikely]]
+        return; // 编号滞后(防御;正常链路表格行与 rois 一一对应)
+
+    page->rois.erase(page->rois.begin() + static_cast<std::ptrdiff_t>(value->roi_index));
+
+    // 高亮回移:命中即清,同页后续编号随 vector 下标收敛(渲染侧颜色随之迁移)
+    if (roi_highlight_ && roi_highlight_->page_id == value->page_id) {
+        if (roi_highlight_->roi_index == value->roi_index)
+            roi_highlight_.reset();
+        else if (roi_highlight_->roi_index > value->roi_index)
+            --roi_highlight_->roi_index;
+    }
+
+    // 复用 page_rois_changed 收口:index_dock 计数/各订阅方随此更新
+    bus_.post<core::event::page_rois_changed>(
+            cbuspp::value<std::shared_ptr<core::page>> { page })
+        .sync();
+    update();
+}
+
+void canvas::on_roi_highlight_changed(
+    const cbuspp::value<std::optional<core::roi_ref>>& value)
+{
+    roi_highlight_ = *value; // 仅渲染态:L4 矢量直绘,无层缓存需清
+    update();
+}
+
+auto canvas::highlight_index(const core::page& page) const -> int
+{
+    if (!roi_highlight_ || roi_highlight_->page_id != page.info.id)
+        return -1;
+    return static_cast<int>(roi_highlight_->roi_index);
 }
 
 // ─── 页解析与校验 ─────────────────────────────────────────────────────────────
@@ -963,7 +1009,7 @@ void canvas::paintEvent(QPaintEvent* event)
         draw<layer::l1>(painter, *page, nullptr, options_, l1_img_);
         draw<layer::l3>(painter, *page, nullptr, options_, l3_img_);
         draw_rois(painter, std::span<const core::roi> { page->rois }, nullptr, options_,
-            ants_offset_); // L4
+            ants_offset_, highlight_index(*page)); // L4
         draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
         draw_temp_mask(painter, 0, *page, l6_img_); // L6:工具临时掩膜
         draw_temp_annotations(painter); // L6:标注临时预览
@@ -978,7 +1024,7 @@ void canvas::paintEvent(QPaintEvent* event)
             draw<layer::l2>(painter, *page, compare.get(), options_, l2_img_);
         // L4/L5:仅画主副两页完全相同的项(独有项不显示)
         draw_rois(painter, std::span<const core::roi> { page->rois },
-            compare ? &compare->rois : nullptr, options_, ants_offset_);
+            compare ? &compare->rois : nullptr, options_, ants_offset_, highlight_index(*page));
         draw<layer::l5>(painter, *page, compare.get(), options_, l5_img_);
         draw_temp_annotations(painter); // 标注五模式合法:预览照画
         draw_temp_rois(painter); // 框选五模式合法:预览照画
@@ -1000,7 +1046,7 @@ void canvas::paintEvent(QPaintEvent* event)
         apply_view();
         draw<layer::l1>(painter, *page, nullptr, options_, l1_img_);
         draw_rois(painter, std::span<const core::roi> { page->rois }, &compare->rois, options_,
-            ants_offset_); // L4:公有项
+            ants_offset_, highlight_index(*page)); // L4:公有项
         draw<layer::l5>(painter, *page, compare.get(), options_, l5_img_);
         draw_temp_mask(painter, 0, *page, l6_img_);
         draw_temp_annotations(painter);
@@ -1012,7 +1058,7 @@ void canvas::paintEvent(QPaintEvent* event)
         apply_view(static_cast<double>(seam));
         draw<layer::l1>(painter, *compare, nullptr, options_, l1c_img_);
         draw_rois(painter, std::span<const core::roi> { compare->rois }, &page->rois, options_,
-            ants_offset_); // L4:公有项(过滤基准 = 主页)
+            ants_offset_, highlight_index(*compare)); // L4:公有项(过滤基准 = 主页)
         draw<layer::l5>(painter, *compare, page.get(), options_, l5_img_);
         draw_temp_mask(painter, 1, *compare, l6c_img_); // L6:副侧自己的掩膜
         draw_temp_annotations(painter); // 同一图像坐标:右半同位预览
@@ -1039,7 +1085,7 @@ void canvas::paintEvent(QPaintEvent* event)
         apply_view();
         draw<layer::l1>(painter, *page, nullptr, options_, l1_img_);
         draw_rois(painter, std::span<const core::roi> { page->rois }, &compare->rois, options_,
-            ants_offset_); // L4:公有项
+            ants_offset_, highlight_index(*page)); // L4:公有项
         draw<layer::l5>(painter, *page, compare.get(), options_, l5_img_);
         painter.restore();
 
@@ -1048,7 +1094,7 @@ void canvas::paintEvent(QPaintEvent* event)
         apply_view(); // 无 origin 偏移:与 S 完全同位
         draw<layer::l1>(painter, *compare, nullptr, options_, l1c_img_);
         draw_rois(painter, std::span<const core::roi> { compare->rois }, &page->rois, options_,
-            ants_offset_); // L4:公有项(过滤基准 = 主页)
+            ants_offset_, highlight_index(*compare)); // L4:公有项(过滤基准 = 主页)
         draw<layer::l5>(painter, *compare, page.get(), options_, l5_img_);
         painter.restore();
 

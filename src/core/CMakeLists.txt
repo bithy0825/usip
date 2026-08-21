@@ -11,6 +11,7 @@ target_sources(usip_core
     PRIVATE
         src/config.cpp
         src/colormap.cpp
+        src/roi_stats.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS inc
@@ -20,6 +21,7 @@ target_sources(usip_core
             inc/event.hpp
             inc/document.hpp
             inc/colormap.hpp
+            inc/roi_stats.hpp
             inc/view_mode.hpp
 )
 
@@ -41,7 +43,7 @@ target_link_libraries(usip_core
         3rdparty::qt6 # document.hpp 的 QImage/QPointF(通信基准需要)
         3rdparty::clipper2 # roi 的矢量路径
     PRIVATE
-        3rdparty::highway # colormap 的 SIMD 内核(实现细节,不入接口)
+        3rdparty::highway # colormap/roi_stats 的 SIMD 内核(实现细节,不入接口)
 )
 
 # PCH 组合:标准库 + 通用第三方(clipper2/Qt 仅个别头文件使用,不入 PCH)

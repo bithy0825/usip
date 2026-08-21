@@ -119,6 +119,12 @@ private:
     void on_measurements_clear_requested();
     // 清除主、副两页全部选区数据(Clear Constituency)
     void on_rois_clear_requested();
+    // 选区删除(infodock 行右键):擦除 page.rois 项,经 page_rois_changed 收口
+    void on_roi_delete_requested(const cbuspp::value<core::roi_ref>& value);
+    // infodock 行选中高亮:仅渲染态(不落数据);nullopt = 清除
+    void on_roi_highlight_changed(const cbuspp::value<std::optional<core::roi_ref>>& value);
+    // 该页当前应高亮的选区下标(无/不属于该页 = -1;draw_rois 末参)
+    [[nodiscard]] auto highlight_index(const core::page& page) const -> int;
 
     // doc_ → page_(active_page)与 compare_page_(compare_to);无则置空
     void resolve_pages();
@@ -197,6 +203,8 @@ private:
 
     QTimer* ants_timer_ { nullptr }; // 蚂蚁线动画(100ms 推进相位)
     int ants_offset_ { 0 }; // 蚂蚁线相位(模 ants_offset_cycle)
+
+    std::optional<core::roi_ref> roi_highlight_ { }; // infodock 行选中高亮(仅渲染)
 
     std::weak_ptr<core::document> doc_ { }; // 激活文档(非拥有,实体在 service)
     std::weak_ptr<core::page> page_ { }; // 激活页(非拥有)

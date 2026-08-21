@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "colormap.hpp"
@@ -81,6 +82,12 @@ CBUSPP_EVENT(annotation_visible_toggled, "annotation_visible.toggled", bool);
     CBUSPP_EVENT(measurements_clear_requested, "measurements.clear_requested", void);
     // 清除主、副两页的全部选区数据(菜单 Clear Constituency)
     CBUSPP_EVENT(rois_clear_requested, "rois.clear_requested", void);
+    // 选区删除(infodock 行右键):canvas 裁决执行(擦除 page.rois 项)并重绘;
+    // 表格删行/重编号由高亮随选择联动,均经既有 page_rois_changed 收口
+    CBUSPP_EVENT(roi_delete_requested, "roi.delete_requested", roi_ref);
+    // infodock 行选中 → 画布渲染期对该选区加内部蒙版(仅渲染态,不落数据);
+    // nullopt = 清除高亮
+    CBUSPP_EVENT(roi_highlight_changed, "roi.highlight_changed", std::optional<roi_ref>);
 
     CBUSPP_EVENT(error_occurred, "error.occurred", common::error&);
 }

@@ -1,10 +1,12 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <QImage>
@@ -62,6 +64,14 @@ struct document {
     std::unordered_map<cuuidpp::uuid, std::shared_ptr<page>> pages { }; // key=page_info.id
     std::pair<double, double> step { 1.0, 1.0 }; // 采集步长
     cuuidpp::uuid active_page { }; // 当前页 uuid(= page_info.id)
+};
+
+// ─── 页内选区引用(删除请求与高亮共用载荷;roi_index = page.rois 下标)────────
+struct roi_ref {
+    cuuidpp::uuid page_id { };
+    std::size_t roi_index { 0 };
+
+    [[nodiscard]] constexpr auto operator==(const roi_ref&) const noexcept -> bool = default;
 };
 
 }
