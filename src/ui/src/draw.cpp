@@ -491,4 +491,37 @@ void draw_session_rois(QPainter& painter, const Clipper2Lib::PathsD& paths,
     painter.restore();
 }
 
+void draw_session_poly(QPainter& painter, std::span<const QPointF> points,
+    const QPointF* hover, const QColor& color)
+{
+    if (points.empty())
+        return;
+
+    const QTransform image_to_screen = painter.transform();
+    painter.save();
+    painter.resetTransform();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    QPolygonF screen; // 屏幕域顶点(悬停点作末顶点:预览封闭后的样子)
+    screen.reserve(static_cast<qsizetype>(points.size()) + (hover ? 1 : 0));
+    for (const auto& p : points)
+        screen.append(image_to_screen.map(p));
+    if (hover)
+        screen.append(image_to_screen.map(*hover));
+
+    QColor fill { color };
+    fill.setAlpha(64);
+    painter.setPen(QPen { color, roi_pen_width });
+    painter.setBrush(fill);
+    painter.drawPolygon(screen); // 自动闭合:填充 + 含闭合边的描边
+
+    // 顶点圆点(同标注端点样式:实心 + 深色细描边)
+    painter.setPen(QPen { color.darker(260), 1.0 });
+    painter.setBrush(color);
+    for (const auto& p : screen)
+        painter.drawEllipse(p, 2.5, 2.5);
+    painter.setBrush(Qt::NoBrush);
+    painter.restore();
+}
+
 }

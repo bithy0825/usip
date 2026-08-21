@@ -108,6 +108,7 @@ void canvas::setup_subscriptions()
     bus_.on<core::event::rectangle_draw_requested>()
         .call(*this, &canvas::on_rectangle_draw_requested);
     bus_.on<core::event::ellipse_draw_requested>().call(*this, &canvas::on_ellipse_draw_requested);
+    bus_.on<core::event::polygon_draw_requested>().call(*this, &canvas::on_polygon_draw_requested);
     bus_.on<core::event::rois_clear_requested>().call(*this, &canvas::on_rois_clear_requested);
     bus_.on<core::event::step_x_changed>().call(*this, &canvas::on_step_x_changed);
     bus_.on<core::event::step_y_changed>().call(*this, &canvas::on_step_y_changed);
@@ -442,6 +443,7 @@ void canvas::on_tool_result_applied()
         }
         roi_dragging_ = false;
         roi_right_armed_ = false;
+        setMouseTracking(false); // 多边形悬停预览随会话结束关闭
     }
 
     // 统一出口:apply 已处理(含无会话的误触)→ 广播"会话结束 + 当前模式"
@@ -464,6 +466,7 @@ void canvas::on_tool_result_canceled()
         roi_tool_.cancel();
         roi_dragging_ = false;
         roi_right_armed_ = false;
+        setMouseTracking(false);
     }
 
     // 统一出口:cancel 已处理(含拒绝路径的按钮回落)→ 广播"会话结束 + 当前模式"
@@ -511,6 +514,11 @@ void canvas::on_ellipse_draw_requested()
     begin_roi_session(roi_shape::ellipse);
 }
 
+void canvas::on_polygon_draw_requested()
+{
+    begin_roi_session(roi_shape::polygon);
+}
+
 void canvas::begin_roi_session(roi_shape shape)
 {
     const auto page = page_.lock();
@@ -537,6 +545,7 @@ void canvas::begin_roi_session(roi_shape shape)
         return;
     }
     setFocus(); // 数字键 1-4(运算模式)经键盘事件流入画布
+    setMouseTracking(shape == roi_shape::polygon); // 多边形:悬停连线预览需要移动事件
     update(); // L6 进入框选预览态
 }
 
@@ -734,6 +743,7 @@ void canvas::cancel_roi_session()
     roi_tool_.cancel();
     roi_dragging_ = false;
     roi_right_armed_ = false;
+    setMouseTracking(false);
     // 广播 canceled:侧边栏按钮回落与选项页复位(回流时工具已取消,无递归)
     bus_.post<core::event::tool_result_canceled>().sync();
     update();
@@ -758,8 +768,11 @@ void canvas::draw_temp_rois(QPainter& painter)
     if (!page)
         return;
     // 临时选区颜色 = 落盘后起始编号色(apply 追加为主页 rois 尾项)
-    draw_session_rois(painter, roi_tool_.preview(), roi_tool_.shape(), roi_tool_.draft(),
-        core::roi_color(page->rois.size()));
+    const QColor color = core::roi_color(page->rois.size());
+    draw_session_rois(
+        painter, roi_tool_.preview(), roi_tool_.shape(), roi_tool_.draft(), color);
+    if (roi_tool_.shape() == roi_shape::polygon) // 多边形:顶点 + 悬停连线预览
+        draw_session_poly(painter, roi_tool_.poly_draft(), roi_tool_.poly_hover(), color);
 }
 
 auto canvas::ants_animated() const -> bool
@@ -782,6 +795,14 @@ auto canvas::image_pos(const QPointF& screen, double origin) const -> QPointF
     QPointF p { (screen.x() - origin - view_.offset.x()) / view_.zoom,
         (screen.y() - view_.offset.y()) / view_.zoom };
     return clamped_image(p); // 鼠标可在界外,坐标钉在边界内
+}
+
+auto canvas::gesture_origin(const QPointF& screen) const -> double
+{
+    return options_.mode == core::view_mode::split
+            && screen.x() >= static_cast<double>(seam_x())
+        ? static_cast<double>(seam_x())
+        : 0.0;
 }
 
 auto canvas::clamped_image(QPointF p) const -> QPointF
@@ -1064,26 +1085,39 @@ void canvas::mousePressEvent(QMouseEvent* event)
         event->accept();
     } else if (event->button() == Qt::LeftButton && annotation_tool_.active()) {
         // 标注起笔:以按下点定半区(split),整条手势锁定同一视口 origin
-        annot_origin_ = options_.mode == core::view_mode::split
-                && event->position().x() >= static_cast<double>(seam_x())
-            ? static_cast<double>(seam_x())
-            : 0.0;
+        annot_origin_ = gesture_origin(event->position());
         annot_dragging_ = true;
         annotation_tool_.begin_line(image_pos(event->position(), annot_origin_));
         update();
         event->accept();
     } else if (event->button() == Qt::LeftButton && roi_tool_.active()) {
-        // 框选起笔:同标注 —— 半区锁定视口 origin,锚点即起笔角
-        roi_origin_ = options_.mode == core::view_mode::split
-                && event->position().x() >= static_cast<double>(seam_x())
-            ? static_cast<double>(seam_x())
-            : 0.0;
-        roi_dragging_ = true;
-        roi_anchor_ = image_pos(event->position(), roi_origin_);
-        roi_tool_.begin_rect(roi_anchor_);
+        if (roi_tool_.shape() == roi_shape::polygon) {
+            // 多边形:左键单击落顶点(每次点击按所在半区映射,可跨缝)
+            roi_tool_.add_poly_point(
+                image_pos(event->position(), gesture_origin(event->position())));
+        } else {
+            // 包围盒形状:起笔,半区锁定视口 origin,锚点即起笔角
+            roi_origin_ = gesture_origin(event->position());
+            roi_dragging_ = true;
+            roi_anchor_ = image_pos(event->position(), roi_origin_);
+            roi_tool_.begin_rect(roi_anchor_);
+        }
         update();
         event->accept();
     }
+}
+
+// 双击的第二击不产生独立 press(Qt 以 dblClick 取代),多边形在此封闭
+void canvas::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton && roi_tool_.active()
+        && roi_tool_.shape() == roi_shape::polygon) {
+        roi_tool_.close_poly();
+        update();
+        event->accept();
+        return;
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 void canvas::mouseMoveEvent(QMouseEvent* event)
@@ -1113,8 +1147,16 @@ void canvas::mouseMoveEvent(QMouseEvent* event)
         event->accept();
         return;
     }
-    if (!panning_)
+    if (!panning_) {
+        // 多边形悬停:预览最后顶点到光标的连线(tracking 仅多边形会话开启)
+        if (roi_tool_.active() && roi_tool_.shape() == roi_shape::polygon) {
+            roi_tool_.move_poly(
+                image_pos(event->position(), gesture_origin(event->position())));
+            update();
+            event->accept();
+        }
         return;
+    }
     view_.offset += event->position() - pan_last_;
     pan_last_ = event->position();
     clamp_offset();

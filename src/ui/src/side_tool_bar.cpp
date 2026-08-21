@@ -59,6 +59,8 @@ void side_tool_bar::setup_subscriptions()
         .call(*this, &side_tool_bar::on_rectangle_draw_requested);
     bus_.on<core::event::ellipse_draw_requested>()
         .call(*this, &side_tool_bar::on_ellipse_draw_requested);
+    bus_.on<core::event::polygon_draw_requested>()
+        .call(*this, &side_tool_bar::on_polygon_draw_requested);
     // 会话结束经 canvas 统一广播(携带模式;不直接订阅 apply/canceled)
     bus_.on<core::event::tool_session_ended>().call(*this, &side_tool_bar::on_tool_session_ended);
     bus_.on<core::event::view_mode_changed>().call(*this, &side_tool_bar::on_view_mode_changed);
@@ -79,8 +81,11 @@ void side_tool_bar::setup_connections()
         else
             bus_.post<core::event::tool_result_canceled>().sync();
     });
-    connect(polygon_, &QAction::triggered, this, [this] {
-        bus_.post<core::event::polygon_draw_requested>().sync();
+    connect(polygon_, &QAction::toggled, this, [this](bool checked) {
+        if (checked)
+            bus_.post<core::event::polygon_draw_requested>().sync();
+        else
+            bus_.post<core::event::tool_result_canceled>().sync();
     });
     connect(threshold_seg_, &QAction::toggled, this, [this](bool checked) {
         if (checked)
@@ -120,17 +125,25 @@ void side_tool_bar::on_ellipse_draw_requested()
     refresh_enables();
 }
 
+void side_tool_bar::on_polygon_draw_requested()
+{
+    session_active_ = true;
+    refresh_enables();
+}
+
 void side_tool_bar::on_tool_session_ended(const cbuspp::value<core::view_mode>& value)
 {
     session_active_ = false;
     mode_ = *value;
     if (threshold_seg_->isChecked() || measure_->isChecked() || rectangle_->isChecked()
-        || ellipse_->isChecked()) {
-        const QSignalBlocker t(threshold_seg_), m(measure_), r(rectangle_), e(ellipse_);
+        || ellipse_->isChecked() || polygon_->isChecked()) {
+        const QSignalBlocker t(threshold_seg_), m(measure_), r(rectangle_), e(ellipse_),
+            p(polygon_);
         threshold_seg_->setChecked(false); // 按钮回落(阻断,不回发 canceled)
         measure_->setChecked(false);
         rectangle_->setChecked(false);
         ellipse_->setChecked(false);
+        polygon_->setChecked(false);
     }
     refresh_enables();
 }
@@ -159,6 +172,8 @@ void side_tool_bar::refresh_enables()
         rectangle_->setEnabled(true);
     if (ellipse_->isChecked())
         ellipse_->setEnabled(true);
+    if (polygon_->isChecked())
+        polygon_->setEnabled(true);
 }
 
 } // namespace usip::ui

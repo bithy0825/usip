@@ -108,4 +108,9 @@ inline constexpr int ants_offset_cycle { 8 };
 void draw_session_rois(QPainter& painter, const Clipper2Lib::PathsD& paths,
     roi_shape shape, const std::optional<QRectF>& draft, const QColor& color);
 
+// ROI 临时层:多边形进行中的预览(已落顶点 + 悬停点;悬停点参与闭合,
+// 预览"双击封闭后"的样子)—— 顶点折线 + 顶点圆点,同色半透明填充
+void draw_session_poly(QPainter& painter, std::span<const QPointF> points,
+    const QPointF* hover, const QColor& color);
+
 }

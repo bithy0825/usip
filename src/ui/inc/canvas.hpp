@@ -69,6 +69,7 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
@@ -100,10 +101,12 @@ private:
     void on_tool_result_canceled();
     // 标注工具(measure 按钮触发;不消费像素,exec 只带 step)
     void on_measure_requested();
-    // 框选工具(rectangle/ellipse 按钮触发;几何工具,五模式皆合法)
+    // 框选工具(rectangle/ellipse/polygon 按钮触发;几何工具,五模式皆合法)
     void on_rectangle_draw_requested();
     void on_ellipse_draw_requested();
+    void on_polygon_draw_requested();
     // 框选会话公共入口:页校验 → 会话排他 → exec(形状) → 抢占键盘焦点
+    // (多边形额外开 mouse tracking:悬停连线预览)
     void begin_roi_session(roi_shape shape);
     // L5 标注参数(线宽/线色改即时重绘)
     void on_measure_line_width_changed(const cbuspp::value<int>& value);
@@ -145,6 +148,8 @@ private:
     [[nodiscard]] auto ants_animated() const -> bool;
     // 屏幕 → 图像像素(标注手势;origin:split 右半 = seam,其余 0);端点钳制在图像范围内
     [[nodiscard]] auto image_pos(const QPointF& screen, double origin) const -> QPointF;
+    // 手势所在半区的视口 origin(split 右半 = seam,其余 0;标注/框选/多边形共用)
+    [[nodiscard]] auto gesture_origin(const QPointF& screen) const -> double;
     // 图像坐标钳制到图像范围(鼠标可在界外,坐标钉在边界内;框选正方形约束后复钳)
     [[nodiscard]] auto clamped_image(QPointF p) const -> QPointF;
     // Shift 按下时把框选角点约束为正方形包围盒(相对锚点取 max 边;越界回钳,

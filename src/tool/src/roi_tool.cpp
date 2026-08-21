@@ -1,5 +1,5 @@
 // ==============================================================================
-// roi_tool.cpp — 框选工具(矩形/椭圆)实现
+// roi_tool.cpp — 框选工具(矩形/椭圆/多边形)实现
 // ==============================================================================
 
 #include "roi_tool.hpp"
@@ -14,8 +14,8 @@
 namespace usip::ui {
 namespace {
 
-    // 手势有效边长(图像像素):过短视为误触
-    constexpr double min_rect_px { 2.0 };
+    // 手势有效阈值(图像像素):包围盒边长 / 多边形顶点间距 / 多边形面积
+    constexpr double min_gesture_px { 2.0 };
 
     // 包围盒 → 闭合多边形(矩形;图像像素坐标)
     [[nodiscard]] auto rect_path(const QRectF& rect) -> Clipper2Lib::PathD
@@ -47,7 +47,37 @@ namespace {
 
     [[nodiscard]] auto shape_path(const QRectF& rect, roi_shape shape) -> Clipper2Lib::PathD
     {
-        return shape == roi_shape::ellipse ? ellipse_path(rect) : rect_path(rect);
+        switch (shape) {
+        case roi_shape::rectangle:
+            return rect_path(rect);
+        case roi_shape::ellipse:
+            return ellipse_path(rect);
+        case roi_shape::polygon:
+            return { }; // 多边形不经包围盒,直接由顶点构造
+        }
+        std::unreachable();
+    }
+
+    // 顶点序列 → 闭合多边形(多边形手势的路径构造)
+    [[nodiscard]] auto poly_path(const std::vector<QPointF>& points) -> Clipper2Lib::PathD
+    {
+        Clipper2Lib::PathD path;
+        path.reserve(points.size());
+        for (const auto& p : points)
+            path.push_back({ p.x(), p.y() });
+        return path;
+    }
+
+    // 多边形面积(鞋带公式;自交多边形取代数绝对值,仅作退化判据)
+    [[nodiscard]] auto poly_area(const std::vector<QPointF>& points) -> double
+    {
+        double s = 0.0;
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            const QPointF& a = points[i];
+            const QPointF& b = points[(i + 1) % points.size()];
+            s += a.x() * b.y() - b.x() * a.y();
+        }
+        return std::abs(s) / 2.0;
     }
 
     // 单步布尔合并(NonZero:Clipper2 输出孔洞与外圈方向相反,两种填充规则皆有效)
@@ -116,11 +146,44 @@ void roi_tool::end_rect(const QPointF& end)
 
     const QRectF rect = QRectF { draft_->first, draft_->second }.normalized();
     draft_.reset();
-    if (rect.width() < min_rect_px || rect.height() < min_rect_px)
+    if (rect.width() < min_gesture_px || rect.height() < min_gesture_px)
         return; // 误触丢弃
 
-    history_.emplace_back(rect, op_);
+    history_.emplace_back(shape_path(rect, shape_), op_);
     replay();
+}
+
+void roi_tool::add_poly_point(const QPointF& pos)
+{
+    if (!active_ || shape_ != roi_shape::polygon)
+        return;
+    if (!poly_.empty()) {
+        const QPointF& last = poly_.back();
+        if (std::hypot(pos.x() - last.x(), pos.y() - last.y()) < min_gesture_px)
+            return; // 与上一顶点过近:视为误触
+    }
+    poly_.push_back(pos);
+    poly_hover_ = pos; // 落点即连线起点,避免悬停未更新时连线残留旧位置
+}
+
+void roi_tool::move_poly(const QPointF& pos)
+{
+    if (!active_ || shape_ != roi_shape::polygon)
+        return;
+    poly_hover_ = pos;
+}
+
+void roi_tool::close_poly()
+{
+    if (!active_ || shape_ != roi_shape::polygon)
+        return;
+    // 不足三点 / 面积过小(近似共线):整条丢弃
+    if (poly_.size() >= 3 && poly_area(poly_) >= min_gesture_px) {
+        history_.emplace_back(poly_path(poly_), op_);
+        replay();
+    }
+    poly_.clear();
+    poly_hover_.reset();
 }
 
 void roi_tool::undo_rect()
@@ -148,6 +211,16 @@ auto roi_tool::draft() const noexcept -> std::optional<QRectF>
     return QRectF { draft_->first, draft_->second }.normalized();
 }
 
+auto roi_tool::poly_draft() const noexcept -> std::span<const QPointF>
+{
+    return poly_;
+}
+
+auto roi_tool::poly_hover() const noexcept -> const QPointF*
+{
+    return poly_hover_ ? &*poly_hover_ : nullptr;
+}
+
 auto roi_tool::apply() -> result<outcome>
 {
     if (!active_)
@@ -155,6 +228,8 @@ auto roi_tool::apply() -> result<outcome>
             "roi tool has no active session");
 
     draft_.reset();
+    poly_.clear(); // 未封闭的多边形不随会话落盘
+    poly_hover_.reset();
     outcome o { core::roi { std::move(accumulated_) } };
     release();
     return o;
@@ -168,8 +243,8 @@ void roi_tool::cancel() noexcept
 void roi_tool::replay()
 {
     accumulated_.clear();
-    for (const auto& [rect, op] : history_) {
-        const Clipper2Lib::PathsD clip { shape_path(rect, shape_) };
+    for (const auto& [path, op] : history_) {
+        const Clipper2Lib::PathsD clip { path };
         accumulated_ = merge(accumulated_, clip, op);
     }
 }
@@ -184,6 +259,9 @@ void roi_tool::release() noexcept
     accumulated_.clear();
     accumulated_.shrink_to_fit();
     draft_.reset();
+    poly_.clear();
+    poly_.shrink_to_fit();
+    poly_hover_.reset();
 }
 
 }
