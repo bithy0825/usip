@@ -71,6 +71,10 @@ void main_window::setup_ui()
 
     status_bar_ = new status_bar(bus_, this);
     setStatusBar(status_bar_);
+
+    resize(1440, 900); // 默认窗口尺寸(图像分析工作区;用户可再调)
+    // 右侧 dock 初始宽度:表格列多,过窄会大面积省略表头与数据
+    resizeDocks({ index_dock_, info_dock_, hist_dock_ }, { 560, 560, 560 }, Qt::Horizontal);
 }
 
 void main_window::setup_subscriptions()

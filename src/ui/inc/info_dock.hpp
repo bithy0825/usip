@@ -42,6 +42,9 @@ private:
     void setup_subscriptions();
     void setup_connections();
 
+    // 视口按压前快照当前行(选择更新之前),供"再点已选中行 = 取消高亮"裁决
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
     // 页选区变更(复用既有广播收口):空 → 移除该页全部行;非空 → 行数差额即
@@ -80,10 +83,9 @@ private:
 
     std::weak_ptr<core::document> doc_ { }; // 激活文档(行 → 页解析用)
 
-    // 再点已选中行 = 取消高亮:按下时武装,双击间隔后裁决(双击编辑期抑制);
-    // 唯一事实源 = sync_highlight(选择联动与程序性删改均经此收口)
-    QTableWidget* sel_table_ { nullptr };
-    int sel_row_ { -1 };
+    // 再点已选中行 = 取消高亮:按压前快照(选择尚未更新),释放时一致即取消;
+    // 双击(Floor/Ceil 编辑)期抑制
+    int pre_press_row_ { -1 };
     bool dblclk_guard_ { false };
 
     std::unordered_map<cuuidpp::uuid, QTableWidget*> tables_ { };

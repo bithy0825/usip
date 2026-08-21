@@ -68,8 +68,7 @@ void hist_dock::setup_ui()
 
     // ── QChart 直方图:256 bin 条形,主题/字体随 Qt 全局风格 ──────────
     auto* chart = new QChart();
-    chart->setTitle(tr("Gray Histogram"));
-    chart->legend()->hide();
+    chart->legend()->hide(); // 图表标题省略(dock 标题栏已表意,省下纵向空间)
     chart->setContentsMargins(0, 0, 0, 0);
     chart->setBackgroundVisible(false);
 
@@ -107,6 +106,8 @@ void hist_dock::setup_ui()
     hist_view_->viewport()->installEventFilter(this); // 滚轮缩放 + 左键拖动平移
 
     auto* layout = new QGridLayout(container);
+    layout->setContentsMargins(4, 4, 4, 4); // 紧凑:按钮行/图表少留白
+    layout->setSpacing(4);
     layout->addWidget(add_btn_, 0, 0);
     layout->addWidget(sub_btn_, 0, 1);
     layout->addWidget(reset_btn_, 0, 2);

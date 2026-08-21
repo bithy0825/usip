@@ -5,6 +5,7 @@
 
 #include "executor.hpp"
 #include "platform/system.hpp"
+#include "utility.hpp"
 
 namespace usip::app {
 
@@ -100,13 +101,15 @@ auto application::init(int& argc, char** argv) -> result<>
         !r)
         return std::unexpected(std::move(r).error());
 
-    // ── 界面翻译(config ui.language;zh_CN 装资源翻译,en = 英文源串不装)────
+    // ── 界面翻译(config ui.language;zh_CN 装翻译,en = 英文源串不装)─────────
+    // qm 由构建期 lrelease 从 assets/i18n/*.ts 生成并部署到 exe 旁 i18n/ 目录
     if (config_->get<std::string>("ui.language") == "zh_CN") {
+        const auto qm = platform::system::executable_dir() / "i18n" / "usip_zh_CN.qm";
         translator_ = std::make_unique<QTranslator>();
-        if (translator_->load(QStringLiteral(":/i18n/usip_zh_CN.qm"))) {
+        if (translator_->load(QString::fromStdString(common::path_to_utf8(qm)))) {
             QCoreApplication::installTranslator(translator_.get());
         } else {
-            common::log_warn("failed to load translation: :/i18n/usip_zh_CN.qm");
+            common::log_warn("failed to load translation: {}", common::path_to_utf8(qm));
             translator_.reset();
         }
     }

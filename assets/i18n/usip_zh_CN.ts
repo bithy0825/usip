@@ -317,7 +317,7 @@
     <message>
         <location filename="../../src/ui/src/info_dock.cpp" line="204" />
         <source>Percent(%)</source>
-        <translation>百分比(%)</translation>
+        <translation>占比</translation>
     </message>
     <message>
         <location filename="../../src/ui/src/info_dock.cpp" line="204" />

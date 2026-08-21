@@ -49,15 +49,6 @@ qt_add_resources(usip_ui "usip_icons"
     FILES ${USIP_ICON_SVGS}
 )
 
-# 翻译产物(.ts 源在 assets/i18n/,经 lrelease 编译为 .qm 后随资源嵌入:
-# :/i18n/<name>.qm;新增/更新字符串时重跑 lupdate + lrelease 再提交)
-file(GLOB USIP_I18N_QMS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/assets/i18n/*.qm")
-qt_add_resources(usip_ui "usip_i18n"
-    PREFIX "/"
-    BASE "${CMAKE_SOURCE_DIR}/assets"
-    FILES ${USIP_I18N_QMS}
-)
-
 target_include_directories(usip_ui
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>

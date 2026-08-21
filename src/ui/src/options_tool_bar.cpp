@@ -129,7 +129,8 @@ void options_tool_bar::setup_ui()
     addAction(menu_bar_.clear_measurements_action());
 
     apply_ = new QAction(reg.icon("apply").value_or(QIcon { }), tr("&Apply"), this);
-    apply_->setShortcut(QKeySequence(Qt::Key_Enter));
+    // 字母区 Return 与数字区 Enter 皆可(单一 shortcut 只认其一)
+    apply_->setShortcuts({ QKeySequence(Qt::Key_Return), QKeySequence(Qt::Key_Enter) });
     apply_->setStatusTip(tr("Apply (Enter)"));
 
     cancel_ = new QAction(reg.icon("cancel").value_or(QIcon { }), tr("&Cancel"), this);

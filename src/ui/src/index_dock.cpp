@@ -150,6 +150,8 @@ void index_dock::setup_ui()
     stacked_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     auto* layout = new QGridLayout(container);
+    layout->setContentsMargins(0, 0, 0, 0); // 与 info_dock 对齐:表格贴边
+    layout->setSpacing(4);
     layout->addWidget(new QLabel(tr("Doc:")), 0, 0, 1, 1);
     layout->addWidget(doc_, 0, 1, 1, 3);
     layout->addWidget(new QLabel(tr("X Step:")), 1, 0);

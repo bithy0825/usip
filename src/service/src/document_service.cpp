@@ -282,11 +282,13 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
     const auto& path = *value;
 
     // 同一文件不重复打开:比对已打开文档的 tiff_info 路径(词法比较,
-    // 文件对话框恒返绝对路径);命中即警告并跳过本次加载
-    if (std::ranges::any_of(docs_ | std::views::values,
-            [&path](const auto& doc) { return doc->info.path == path; })) {
-        common::log_warn("document is already open: '{}'", path.string());
-        bus_.post<core::event::document_switch>(cbuspp::value<std::shared_ptr<core::document>> { })
+    // 文件对话框恒返绝对路径);命中即切换到该文档
+    if (const auto dup = std::ranges::find_if(docs_,
+            [&path](const auto& kv) { return kv.second->info.path == path; });
+        dup != docs_.end()) {
+        common::log_info("document is already open: '{}'; switching to it", path.string());
+        bus_.post<core::event::document_switch>(
+                cbuspp::value<std::shared_ptr<core::document>> { dup->second })
             .with_trace_id(core::event::trace_id::document_service)
             .sync();
         return;

@@ -3,16 +3,18 @@
 #include "icon_registry.hpp"
 
 #include <QAction>
-#include <QApplication>
 #include <QBrush>
 #include <QFont>
 #include <QGridLayout>
 #include <QHeaderView>
+#include <QIntValidator>
+#include <QLineEdit>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QSignalBlocker>
 #include <QStackedWidget>
+#include <QStyledItemDelegate>
 #include <QTableWidget>
-#include <QTimer>
 #include <QVariant>
 
 #include <algorithm>
@@ -36,6 +38,20 @@ namespace {
         inline constexpr int min { 9 };
         inline constexpr int max { 10 };
     } // namespace col
+
+    // Floor/Ceil 编辑器:纯文本输入(无 spinbox 上下箭头遮挡数值),0-255 整型校验
+    class range_edit_delegate : public QStyledItemDelegate {
+    public:
+        using QStyledItemDelegate::QStyledItemDelegate;
+
+        auto createEditor(QWidget* parent, const QStyleOptionViewItem&,
+            const QModelIndex&) const -> QWidget* override
+        {
+            auto* edit = new QLineEdit(parent);
+            edit->setValidator(new QIntValidator(0, 255, edit));
+            return edit;
+        }
+    };
 
 } // namespace
 
@@ -68,6 +84,7 @@ void info_dock::setup_ui()
     delete_action_ = context_menu_->addAction(tr("Delete Constituency"));
 
     auto* layout = new QGridLayout(container);
+    layout->setContentsMargins(0, 0, 0, 0); // 表格贴边:数据区最大化
     layout->addWidget(stacked_, 0, 0, 1, 1);
     layout->setRowStretch(0, 1);
     layout->setColumnStretch(0, 1);
@@ -217,20 +234,18 @@ QTableWidget* info_dock::make_table(QWidget* parent)
         [this, table](QTableWidgetItem* item) { on_range_edited(*table, item); });
     // 行选中 → 广播高亮(渲染期蒙版;无选中 → 清除)
     connect(table, &QTableWidget::itemSelectionChanged, this, [this] { sync_highlight(); });
-    // 再点已选中行 = 取消高亮:按下武装,双击间隔后裁决;双击(Floor/Ceil 编辑)抑制
-    connect(table, &QTableWidget::itemPressed, this, [this, table](QTableWidgetItem* item) {
-        if (!item || table != sel_table_ || item->row() != sel_row_ || sel_row_ < 0)
-            return; // 非"再点已选中行"
-        dblclk_guard_ = false;
-        const int armed_row = sel_row_;
-        QTimer::singleShot(QApplication::doubleClickInterval(), this, [this, table, armed_row] {
-            if (dblclk_guard_ || table != sel_table_ || armed_row != sel_row_)
-                return; // 双击编辑 / 选择已迁移:不裁决
+    // 再点已选中行 = 取消高亮:释放时与按压前快照一致即取消(双击编辑期抑制)
+    connect(table, &QTableWidget::itemClicked, this, [this, table](QTableWidgetItem* item) {
+        if (!item || dblclk_guard_ || pre_press_row_ < 0 || item->row() != pre_press_row_)
+            return;
+        {
+            // 阻断:clearSelection 触发的选择联动会读到未复位的当前行,重发旧高亮
+            const QSignalBlocker blocker { table };
             table->clearSelection();
-            table->setCurrentIndex(QModelIndex { }); // 彻底无当前行(选择联动清高亮)
-        });
+            table->setCurrentIndex(QModelIndex { });
+        }
+        sync_highlight(); // 统一出口:当前行已无效 → 广播清除高亮
     });
-    connect(table, &QTableWidget::itemDoubleClicked, this, [this] { dblclk_guard_ = true; });
     // 行右键 → 选中该行并弹出删除菜单
     connect(table, &QTableWidget::customContextMenuRequested, this,
         [this, table](const QPoint& pos) {
@@ -239,6 +254,12 @@ QTableWidget* info_dock::make_table(QWidget* parent)
                 context_menu_->exec(table->viewport()->mapToGlobal(pos));
             }
         });
+
+    // 按压前快照依赖视口事件(选择更新之前);Floor/Ceil 纯文本编辑(无箭头)
+    table->viewport()->installEventFilter(this);
+    auto* range_delegate = new range_edit_delegate(table);
+    table->setItemDelegateForColumn(col::floor, range_delegate);
+    table->setItemDelegateForColumn(col::ceil, range_delegate);
     return table;
 }
 
@@ -384,19 +405,33 @@ auto info_dock::row_ref(const QTableWidget& table, int row) -> std::optional<cor
 
 void info_dock::sync_highlight()
 {
-    // 选中态唯一事实源:选择联动与程序性删改(删行/清空/切表)均经此收口
-    auto* table = qobject_cast<QTableWidget*>(stacked_->currentWidget());
-    if (table == empty_)
-        table = nullptr;
-    sel_table_ = table;
-    sel_row_ = table ? table->currentRow() : -1;
-
     std::optional<core::roi_ref> highlight;
-    if (table)
-        highlight = row_ref(*table, sel_row_);
+    if (const auto* table = qobject_cast<QTableWidget*>(stacked_->currentWidget());
+        table && table != empty_)
+        highlight = row_ref(*table, table->currentRow());
     bus_.post<core::event::roi_highlight_changed>(
             cbuspp::value<std::optional<core::roi_ref>> { highlight })
         .sync();
+}
+
+bool info_dock::eventFilter(QObject* watched, QEvent* event)
+{
+    switch (event->type()) {
+    case QEvent::MouseButtonPress:
+        if (static_cast<const QMouseEvent*>(event)->button() == Qt::LeftButton) {
+            // 按压前快照(此时尚未更新选择):再点取消的裁决基准
+            if (const auto* table = qobject_cast<QTableWidget*>(watched->parent()))
+                pre_press_row_ = table->currentRow();
+            dblclk_guard_ = false;
+        }
+        break;
+    case QEvent::MouseButtonDblClick:
+        dblclk_guard_ = true; // 双击编辑 Floor/Ceil:抑制本次取消
+        break;
+    default:
+        break;
+    }
+    return QDockWidget::eventFilter(watched, event);
 }
 
 }
