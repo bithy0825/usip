@@ -6,12 +6,14 @@
 #include "canvas.hpp"
 
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QResizeEvent>
 #include <QSlider>
+#include <QTimer>
 #include <QTransform>
 #include <QWheelEvent>
 
@@ -64,11 +66,16 @@ void canvas::setup_ui()
 {
     setMinimumSize(200, 200); // 防止 dock 挤压成零尺寸
     setMouseTracking(false);
+    setFocusPolicy(Qt::StrongFocus); // 框选会话的数字键 1-4 需键盘焦点
 
     slider_ = new QSlider(Qt::Horizontal, this);
     slider_->setRange(0, 100);
     slider_->setValue(50);
     slider_->hide(); // 仅 slider 模式可见
+
+    ants_timer_ = new QTimer(this); // 蚂蚁线相位(仅动画可见时重绘,见 setup_connections)
+    ants_timer_->setInterval(100);
+    ants_timer_->start();
 }
 
 void canvas::setup_subscriptions()
@@ -86,6 +93,9 @@ void canvas::setup_subscriptions()
     bus_.on<core::event::pseudocolor_zero_is_black_toggled>()
         .call(*this, &canvas::on_pseudocolor_zero_is_black_toggled);
     bus_.on<core::event::mask_visible_toggled>().call(*this, &canvas::on_mask_visible_toggled);
+    bus_.on<core::event::roi_visible_toggled>().call(*this, &canvas::on_roi_visible_toggled);
+    bus_.on<core::event::annotation_visible_toggled>()
+        .call(*this, &canvas::on_annotation_visible_toggled);
     bus_.on<core::event::mask_color_changed>().call(*this, &canvas::on_mask_color_changed);
     bus_.on<core::event::mask_opacity_changed>().call(*this, &canvas::on_mask_opacity_changed);
     bus_.on<core::event::mask_floor_changed>().call(*this, &canvas::on_mask_floor_changed);
@@ -95,6 +105,10 @@ void canvas::setup_subscriptions()
     bus_.on<core::event::tool_result_applied>().call(*this, &canvas::on_tool_result_applied);
     bus_.on<core::event::tool_result_canceled>().call(*this, &canvas::on_tool_result_canceled);
     bus_.on<core::event::measure_requested>().call(*this, &canvas::on_measure_requested);
+    bus_.on<core::event::rectangle_draw_requested>()
+        .call(*this, &canvas::on_rectangle_draw_requested);
+    bus_.on<core::event::ellipse_draw_requested>().call(*this, &canvas::on_ellipse_draw_requested);
+    bus_.on<core::event::rois_clear_requested>().call(*this, &canvas::on_rois_clear_requested);
     bus_.on<core::event::step_x_changed>().call(*this, &canvas::on_step_x_changed);
     bus_.on<core::event::step_y_changed>().call(*this, &canvas::on_step_y_changed);
     bus_.on<core::event::measurements_clear_requested>()
@@ -111,6 +125,11 @@ void canvas::setup_connections()
         view_.split = value / 100.0; // 缝是视图态,只动 clip 不动内容
         update();
     });
+    connect(ants_timer_, &QTimer::timeout, this, [this] {
+        ants_offset_ = (ants_offset_ + 1) % ants_offset_cycle;
+        if (ants_animated())
+            update();
+    });
 }
 
 // ─── 总线回调 ─────────────────────────────────────────────────────────────────
@@ -122,9 +141,10 @@ void canvas::on_document_ready(const cbuspp::value<std::shared_ptr<core::documen
         return;
     cancel_threshold_session(); // 会话属于旧页:丢弃(内部自判活跃)
     cancel_annotation_session();
+    cancel_roi_session();
     doc_ = doc;
     resolve_pages();
-    // 页/文档变 → 全部层缓存重建(L4-L6 实现时同清)
+    // 页/文档变 → 全部层缓存重建(L5/L6 实现时同清)
     l1_img_ = { };
     l1c_img_ = { };
     l2_img_ = { };
@@ -152,6 +172,7 @@ void canvas::on_document_switch(
         return;
     cancel_threshold_session(); // 页切换亦经本事件广播:会话属于旧页
     cancel_annotation_session();
+    cancel_roi_session();
     doc_ = doc;
     resolve_pages();
     l1_img_ = { };
@@ -258,6 +279,18 @@ void canvas::on_mask_visible_toggled(const cbuspp::value<bool>& value)
     update();
 }
 
+void canvas::on_roi_visible_toggled(const cbuspp::value<bool>& value)
+{
+    options_.roi_visible = *value; // 可见性不动数据,矢量直绘直接生效
+    update();
+}
+
+void canvas::on_annotation_visible_toggled(const cbuspp::value<bool>& value)
+{
+    options_.annotation_visible = *value;
+    update();
+}
+
 void canvas::on_mask_color_changed(const cbuspp::value<QColor>& value)
 {
     options_.mask_color = *value;
@@ -311,7 +344,7 @@ void canvas::on_threshold_segment_requested()
     }
 
     // 会话排他:任一工具运行中不得开新工具(按钮回落)
-    if (threshold_tool_.active() || annotation_tool_.active()) {
+    if (threshold_tool_.active() || annotation_tool_.active() || roi_tool_.active()) {
         auto err = common::error::make(common::errc::unavailable,
             "another tool session is active");
         post_error(err);
@@ -388,6 +421,27 @@ void canvas::on_tool_result_applied()
             } // 页已失效:结果丢弃
         }
         annot_dragging_ = false;
+    } else if (roi_tool_.active()) {
+        if (auto r = roi_tool_.apply(); r) {
+            // 空结果(会话内未落任何矩形)不落盘
+            if (const auto page = page_.lock(); page && !r->region.path.empty()) {
+                // 对比模式:同值双写(两侧公有,各半同现);single 只写主页
+                if (options_.mode != core::view_mode::single) {
+                    if (const auto compare = compare_page_.lock()) {
+                        compare->rois.push_back(r->region);
+                        bus_.post<core::event::page_rois_changed>(
+                            cbuspp::value<std::shared_ptr<core::page>> { compare })
+                            .sync();
+                    }
+                }
+                page->rois.push_back(std::move(r->region));
+                bus_.post<core::event::page_rois_changed>(
+                    cbuspp::value<std::shared_ptr<core::page>> { page })
+                    .sync();
+            } // 页已失效:结果丢弃
+        }
+        roi_dragging_ = false;
+        roi_right_armed_ = false;
     }
 
     // 统一出口:apply 已处理(含无会话的误触)→ 广播"会话结束 + 当前模式"
@@ -406,6 +460,10 @@ void canvas::on_tool_result_canceled()
     } else if (annotation_tool_.active()) {
         annotation_tool_.cancel();
         annot_dragging_ = false;
+    } else if (roi_tool_.active()) {
+        roi_tool_.cancel();
+        roi_dragging_ = false;
+        roi_right_armed_ = false;
     }
 
     // 统一出口:cancel 已处理(含拒绝路径的按钮回落)→ 广播"会话结束 + 当前模式"
@@ -425,7 +483,7 @@ void canvas::on_measure_requested()
     }
 
     // 会话排他:任一工具运行中不得开新工具(按钮回落)
-    if (threshold_tool_.active() || annotation_tool_.active()) {
+    if (threshold_tool_.active() || annotation_tool_.active() || roi_tool_.active()) {
         auto err = common::error::make(common::errc::unavailable,
             "another tool session is active");
         post_error(err);
@@ -441,6 +499,45 @@ void canvas::on_measure_requested()
         return;
     }
     update(); // L6 进入标注预览态
+}
+
+void canvas::on_rectangle_draw_requested()
+{
+    begin_roi_session(roi_shape::rectangle);
+}
+
+void canvas::on_ellipse_draw_requested()
+{
+    begin_roi_session(roi_shape::ellipse);
+}
+
+void canvas::begin_roi_session(roi_shape shape)
+{
+    const auto page = page_.lock();
+    if (!page) { // 无页:无从框选,按钮回落
+        bus_.post<core::event::tool_result_canceled>().sync();
+        return;
+    }
+
+    // 会话排他:任一工具运行中不得开新工具(按钮回落);
+    // 框选不消费像素,五种视图模式皆合法(同标注)
+    if (threshold_tool_.active() || annotation_tool_.active() || roi_tool_.active()) {
+        auto err = common::error::make(common::errc::unavailable,
+            "another tool session is active");
+        post_error(err);
+        bus_.post<core::event::tool_result_canceled>().sync();
+        return;
+    }
+
+    if (auto started = roi_tool_.exec(shape); !started) {
+        bus_.post<core::event::error_occurred>(
+            cbuspp::value<common::error&> { started.error() })
+            .sync();
+        bus_.post<core::event::tool_result_canceled>().sync();
+        return;
+    }
+    setFocus(); // 数字键 1-4(运算模式)经键盘事件流入画布
+    update(); // L6 进入框选预览态
 }
 
 void canvas::on_measure_line_width_changed(const cbuspp::value<int>& value)
@@ -492,6 +589,30 @@ void canvas::on_measurements_clear_requested()
         if (const auto compare = compare_page_.lock();
             compare && !compare->annotations.empty()) {
             compare->annotations.clear();
+            touched = true;
+        }
+    }
+    if (touched)
+        update();
+}
+
+void canvas::on_rois_clear_requested()
+{
+    // 同 measurements_clear 语义:single 只清当前页,对比模式清主、副两页
+    bool touched = false;
+    if (const auto page = page_.lock(); page && !page->rois.empty()) {
+        page->rois.clear();
+        bus_.post<core::event::page_rois_changed>(
+            cbuspp::value<std::shared_ptr<core::page>> { page })
+            .sync();
+        touched = true;
+    }
+    if (options_.mode != core::view_mode::single) {
+        if (const auto compare = compare_page_.lock(); compare && !compare->rois.empty()) {
+            compare->rois.clear();
+            bus_.post<core::event::page_rois_changed>(
+                cbuspp::value<std::shared_ptr<core::page>> { compare })
+                .sync();
             touched = true;
         }
     }
@@ -606,6 +727,18 @@ void canvas::cancel_annotation_session()
     update();
 }
 
+void canvas::cancel_roi_session()
+{
+    if (!roi_tool_.active())
+        return;
+    roi_tool_.cancel();
+    roi_dragging_ = false;
+    roi_right_armed_ = false;
+    // 广播 canceled:侧边栏按钮回落与选项页复位(回流时工具已取消,无递归)
+    bus_.post<core::event::tool_result_canceled>().sync();
+    update();
+}
+
 void canvas::draw_temp_annotations(QPainter& painter)
 {
     if (!annotation_tool_.active())
@@ -617,17 +750,60 @@ void canvas::draw_temp_annotations(QPainter& painter)
     }
 }
 
+void canvas::draw_temp_rois(QPainter& painter)
+{
+    if (!roi_tool_.active())
+        return;
+    const auto page = page_.lock();
+    if (!page)
+        return;
+    // 临时选区颜色 = 落盘后起始编号色(apply 追加为主页 rois 尾项)
+    draw_session_rois(painter, roi_tool_.preview(), roi_tool_.shape(), roi_tool_.draft(),
+        core::roi_color(page->rois.size()));
+}
+
+auto canvas::ants_animated() const -> bool
+{
+    if (roi_tool_.active())
+        return true; // 会话预览虽非蚂蚁线,落盘产物是 —— 相位保持推进
+    if (!options_.roi_visible)
+        return false; // L4 隐藏:已落选区不画,动画无需推进
+    if (const auto page = page_.lock(); page && !page->rois.empty())
+        return true;
+    if (options_.mode != core::view_mode::single) {
+        if (const auto compare = compare_page_.lock(); compare && !compare->rois.empty())
+            return true;
+    }
+    return false;
+}
+
 auto canvas::image_pos(const QPointF& screen, double origin) const -> QPointF
 {
     QPointF p { (screen.x() - origin - view_.offset.x()) / view_.zoom,
         (screen.y() - view_.offset.y()) / view_.zoom };
-    // 标注端点不得越出图像范围:鼠标可在界外,端点钉在边界内
+    return clamped_image(p); // 鼠标可在界外,坐标钉在边界内
+}
+
+auto canvas::clamped_image(QPointF p) const -> QPointF
+{
     if (const auto page = page_.lock()) {
         const QSize s = oriented_size(*page);
         p.setX(std::clamp(p.x(), 0.0, static_cast<double>(s.width()) - 1.0));
         p.setY(std::clamp(p.y(), 0.0, static_cast<double>(s.height()) - 1.0));
     }
     return p;
+}
+
+auto canvas::squared_end(const QPointF& end, Qt::KeyboardModifiers mods) const -> QPointF
+{
+    if (!(mods & Qt::ShiftModifier))
+        return end;
+    // 正方形约束:短边拉到长边(符号保留);可能越出图像 → 回钳(贴边截断)
+    const double dx = end.x() - roi_anchor_.x();
+    const double dy = end.y() - roi_anchor_.y();
+    const double side = std::max(std::abs(dx), std::abs(dy));
+    return clamped_image({ roi_anchor_.x() + (dx < 0.0 ? -side : side),
+        roi_anchor_.y() + (dy < 0.0 ? -side : side) });
 }
 
 auto canvas::aligned_end(const QPointF& end, Qt::KeyboardModifiers mods) const -> QPointF
@@ -765,10 +941,12 @@ void canvas::paintEvent(QPaintEvent* event)
         apply_view();
         draw<layer::l1>(painter, *page, nullptr, options_, l1_img_);
         draw<layer::l3>(painter, *page, nullptr, options_, l3_img_);
-        draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
+        draw_rois(painter, std::span<const core::roi> { page->rois }, nullptr, options_,
+            ants_offset_); // L4
         draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
         draw_temp_mask(painter, 0, *page, l6_img_); // L6:工具临时掩膜
         draw_temp_annotations(painter); // L6:标注临时预览
+        draw_temp_rois(painter); // L6:框选临时预览
         break;
 
     case core::view_mode::highlight:
@@ -777,9 +955,12 @@ void canvas::paintEvent(QPaintEvent* event)
         const auto compare = compare_page_.lock();
         if (compare)
             draw<layer::l2>(painter, *page, compare.get(), options_, l2_img_);
-        draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
-        draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
+        // L4/L5:仅画主副两页完全相同的项(独有项不显示)
+        draw_rois(painter, std::span<const core::roi> { page->rois },
+            compare ? &compare->rois : nullptr, options_, ants_offset_);
+        draw<layer::l5>(painter, *page, compare.get(), options_, l5_img_);
         draw_temp_annotations(painter); // 标注五模式合法:预览照画
+        draw_temp_rois(painter); // 框选五模式合法:预览照画
         break;
     }
 
@@ -797,20 +978,24 @@ void canvas::paintEvent(QPaintEvent* event)
         painter.setClipRect(QRect { 0, 0, seam, height() });
         apply_view();
         draw<layer::l1>(painter, *page, nullptr, options_, l1_img_);
-        draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
-        draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
+        draw_rois(painter, std::span<const core::roi> { page->rois }, &compare->rois, options_,
+            ants_offset_); // L4:公有项
+        draw<layer::l5>(painter, *page, compare.get(), options_, l5_img_);
         draw_temp_mask(painter, 0, *page, l6_img_);
         draw_temp_annotations(painter);
+        draw_temp_rois(painter);
         painter.restore();
 
         painter.save(); // 右半:C(origin = 缝)
         painter.setClipRect(QRect { seam, 0, width() - seam, height() });
         apply_view(static_cast<double>(seam));
         draw<layer::l1>(painter, *compare, nullptr, options_, l1c_img_);
-        draw<layer::l4>(painter, *compare, nullptr, options_, l4_img_);
-        draw<layer::l5>(painter, *compare, nullptr, options_, l5_img_);
+        draw_rois(painter, std::span<const core::roi> { compare->rois }, &page->rois, options_,
+            ants_offset_); // L4:公有项(过滤基准 = 主页)
+        draw<layer::l5>(painter, *compare, page.get(), options_, l5_img_);
         draw_temp_mask(painter, 1, *compare, l6c_img_); // L6:副侧自己的掩膜
         draw_temp_annotations(painter); // 同一图像坐标:右半同位预览
+        draw_temp_rois(painter);
         painter.restore();
 
         draw_seam(seam, height());
@@ -832,22 +1017,25 @@ void canvas::paintEvent(QPaintEvent* event)
         painter.setClipRect(QRect { 0, 0, seam, height() });
         apply_view();
         draw<layer::l1>(painter, *page, nullptr, options_, l1_img_);
-        draw<layer::l4>(painter, *page, nullptr, options_, l4_img_);
-        draw<layer::l5>(painter, *page, nullptr, options_, l5_img_);
+        draw_rois(painter, std::span<const core::roi> { page->rois }, &compare->rois, options_,
+            ants_offset_); // L4:公有项
+        draw<layer::l5>(painter, *page, compare.get(), options_, l5_img_);
         painter.restore();
 
         painter.save();
         painter.setClipRect(QRect { seam, 0, width() - seam, height() });
         apply_view(); // 无 origin 偏移:与 S 完全同位
         draw<layer::l1>(painter, *compare, nullptr, options_, l1c_img_);
-        draw<layer::l4>(painter, *compare, nullptr, options_, l4_img_);
-        draw<layer::l5>(painter, *compare, nullptr, options_, l5_img_);
+        draw_rois(painter, std::span<const core::roi> { compare->rois }, &page->rois, options_,
+            ants_offset_); // L4:公有项(过滤基准 = 主页)
+        draw<layer::l5>(painter, *compare, page.get(), options_, l5_img_);
         painter.restore();
 
-        // 标注预览:与 S/C 同一坐标系,整视口一次(两侧本就同位)
+        // 标注/框选预览:与 S/C 同一坐标系,整视口一次(两侧本就同位)
         painter.save();
         apply_view();
         draw_temp_annotations(painter);
+        draw_temp_rois(painter);
         painter.restore();
 
         draw_seam(seam, height());
@@ -864,9 +1052,15 @@ void canvas::wheelEvent(QWheelEvent* event)
 
 void canvas::mousePressEvent(QMouseEvent* event)
 {
-    if (event->button() == Qt::RightButton) { // 右键拖动平移
-        panning_ = true;
-        pan_last_ = event->position();
+    if (event->button() == Qt::RightButton) {
+        if (roi_tool_.active()) {
+            // 会话期右键二义:先按"单击撤销"仲裁,拖动超阈值才转平移
+            roi_right_armed_ = true;
+            roi_right_press_ = event->position();
+        } else {
+            panning_ = true; // 右键拖动平移(非会话:按下即平移)
+            pan_last_ = event->position();
+        }
         event->accept();
     } else if (event->button() == Qt::LeftButton && annotation_tool_.active()) {
         // 标注起笔:以按下点定半区(split),整条手势锁定同一视口 origin
@@ -878,6 +1072,17 @@ void canvas::mousePressEvent(QMouseEvent* event)
         annotation_tool_.begin_line(image_pos(event->position(), annot_origin_));
         update();
         event->accept();
+    } else if (event->button() == Qt::LeftButton && roi_tool_.active()) {
+        // 框选起笔:同标注 —— 半区锁定视口 origin,锚点即起笔角
+        roi_origin_ = options_.mode == core::view_mode::split
+                && event->position().x() >= static_cast<double>(seam_x())
+            ? static_cast<double>(seam_x())
+            : 0.0;
+        roi_dragging_ = true;
+        roi_anchor_ = image_pos(event->position(), roi_origin_);
+        roi_tool_.begin_rect(roi_anchor_);
+        update();
+        event->accept();
     }
 }
 
@@ -887,6 +1092,24 @@ void canvas::mouseMoveEvent(QMouseEvent* event)
         annotation_tool_.move_line(
             aligned_end(image_pos(event->position(), annot_origin_), event->modifiers()));
         update();
+        event->accept();
+        return;
+    }
+    if (roi_dragging_) {
+        roi_tool_.move_rect(
+            squared_end(image_pos(event->position(), roi_origin_), event->modifiers()));
+        update();
+        event->accept();
+        return;
+    }
+    if (roi_right_armed_ && !panning_) {
+        // 会话期右键待裁决:超阈值才转平移(纯点击不产生微平移)
+        const QPointF d = event->position() - roi_right_press_;
+        if (std::hypot(d.x(), d.y()) > 4.0) {
+            roi_right_armed_ = false;
+            panning_ = true;
+            pan_last_ = event->position();
+        }
         event->accept();
         return;
     }
@@ -904,13 +1127,53 @@ void canvas::mouseReleaseEvent(QMouseEvent* event)
     if (event->button() == Qt::RightButton && panning_) {
         panning_ = false;
         event->accept();
+    } else if (event->button() == Qt::RightButton && roi_right_armed_) {
+        // 会话期右键单击:撤销最后一个矩形(左键拖拽中不响应)
+        roi_right_armed_ = false;
+        if (!roi_dragging_)
+            roi_tool_.undo_rect();
+        update();
+        event->accept();
     } else if (event->button() == Qt::LeftButton && annot_dragging_) {
         annot_dragging_ = false;
         annotation_tool_.end_line(
             aligned_end(image_pos(event->position(), annot_origin_), event->modifiers()));
         update();
         event->accept();
+    } else if (event->button() == Qt::LeftButton && roi_dragging_) {
+        roi_dragging_ = false;
+        roi_tool_.end_rect(
+            squared_end(image_pos(event->position(), roi_origin_), event->modifiers()));
+        update();
+        event->accept();
     }
+}
+
+void canvas::keyPressEvent(QKeyEvent* event)
+{
+    if (roi_tool_.active()) {
+        switch (event->key()) { // 运算模式:1 并集(默认) 2 交集 3 差集 4 异或
+        case Qt::Key_1:
+            roi_tool_.set_op(roi_op::union_);
+            break;
+        case Qt::Key_2:
+            roi_tool_.set_op(roi_op::intersection);
+            break;
+        case Qt::Key_3:
+            roi_tool_.set_op(roi_op::difference);
+            break;
+        case Qt::Key_4:
+            roi_tool_.set_op(roi_op::xor_);
+            break;
+        default:
+            QWidget::keyPressEvent(event);
+            return;
+        }
+        update();
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
 }
 
 void canvas::resizeEvent(QResizeEvent* event)

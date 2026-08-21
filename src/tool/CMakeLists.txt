@@ -8,6 +8,7 @@ target_sources(usip_tool
     PRIVATE
         src/threshold_tool.cpp
         src/annotation_tool.cpp
+        src/roi_tool.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS inc
@@ -15,6 +16,7 @@ target_sources(usip_tool
             inc/tool.hpp
             inc/threshold_tool.hpp
             inc/annotation_tool.hpp
+            inc/roi_tool.hpp
 )
 
 target_include_directories(usip_tool

@@ -55,6 +55,10 @@ void side_tool_bar::setup_subscriptions()
     bus_.on<core::event::threshold_segment_requested>()
         .call(*this, &side_tool_bar::on_threshold_segment_requested);
     bus_.on<core::event::measure_requested>().call(*this, &side_tool_bar::on_measure_requested);
+    bus_.on<core::event::rectangle_draw_requested>()
+        .call(*this, &side_tool_bar::on_rectangle_draw_requested);
+    bus_.on<core::event::ellipse_draw_requested>()
+        .call(*this, &side_tool_bar::on_ellipse_draw_requested);
     // 会话结束经 canvas 统一广播(携带模式;不直接订阅 apply/canceled)
     bus_.on<core::event::tool_session_ended>().call(*this, &side_tool_bar::on_tool_session_ended);
     bus_.on<core::event::view_mode_changed>().call(*this, &side_tool_bar::on_view_mode_changed);
@@ -62,16 +66,22 @@ void side_tool_bar::setup_subscriptions()
 
 void side_tool_bar::setup_connections()
 {
-    connect(rectangle_, &QAction::triggered, this, [this] {
-        bus_.post<core::event::rectangle_draw_requested>().sync();
+    // 勾选 = 请求会话;取消勾选(再点一次)= 取消会话
+    connect(rectangle_, &QAction::toggled, this, [this](bool checked) {
+        if (checked)
+            bus_.post<core::event::rectangle_draw_requested>().sync();
+        else
+            bus_.post<core::event::tool_result_canceled>().sync();
     });
-    connect(ellipse_, &QAction::triggered, this, [this] {
-        bus_.post<core::event::ellipse_draw_requested>().sync();
+    connect(ellipse_, &QAction::toggled, this, [this](bool checked) {
+        if (checked)
+            bus_.post<core::event::ellipse_draw_requested>().sync();
+        else
+            bus_.post<core::event::tool_result_canceled>().sync();
     });
     connect(polygon_, &QAction::triggered, this, [this] {
         bus_.post<core::event::polygon_draw_requested>().sync();
     });
-    // 勾选 = 请求会话;取消勾选(再点一次)= 取消会话
     connect(threshold_seg_, &QAction::toggled, this, [this](bool checked) {
         if (checked)
             bus_.post<core::event::threshold_segment_requested>().sync();
@@ -98,14 +108,29 @@ void side_tool_bar::on_measure_requested()
     refresh_enables();
 }
 
+void side_tool_bar::on_rectangle_draw_requested()
+{
+    session_active_ = true;
+    refresh_enables();
+}
+
+void side_tool_bar::on_ellipse_draw_requested()
+{
+    session_active_ = true;
+    refresh_enables();
+}
+
 void side_tool_bar::on_tool_session_ended(const cbuspp::value<core::view_mode>& value)
 {
     session_active_ = false;
     mode_ = *value;
-    if (threshold_seg_->isChecked() || measure_->isChecked()) {
-        const QSignalBlocker t(threshold_seg_), m(measure_);
+    if (threshold_seg_->isChecked() || measure_->isChecked() || rectangle_->isChecked()
+        || ellipse_->isChecked()) {
+        const QSignalBlocker t(threshold_seg_), m(measure_), r(rectangle_), e(ellipse_);
         threshold_seg_->setChecked(false); // 按钮回落(阻断,不回发 canceled)
         measure_->setChecked(false);
+        rectangle_->setChecked(false);
+        ellipse_->setChecked(false);
     }
     refresh_enables();
 }
@@ -130,6 +155,10 @@ void side_tool_bar::refresh_enables()
         threshold_seg_->setEnabled(true);
     if (measure_->isChecked())
         measure_->setEnabled(true);
+    if (rectangle_->isChecked())
+        rectangle_->setEnabled(true);
+    if (ellipse_->isChecked())
+        ellipse_->setEnabled(true);
 }
 
 } // namespace usip::ui

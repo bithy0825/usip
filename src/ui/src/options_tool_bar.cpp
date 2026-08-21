@@ -178,11 +178,13 @@ void options_tool_bar::setup_connections()
 void options_tool_bar::on_rectangle_draw_requested()
 {
     options_stack_->setCurrentWidget(draw_options_);
+    page_control_->setEnabled(false); // 会话期禁改对比页(双写落盘的前提;同 measure)
 }
 
 void options_tool_bar::on_ellipse_draw_requested()
 {
     options_stack_->setCurrentWidget(draw_options_);
+    page_control_->setEnabled(false); // 会话期禁改对比页(双写落盘的前提;同 measure)
 }
 
 void options_tool_bar::on_polygon_draw_requested()

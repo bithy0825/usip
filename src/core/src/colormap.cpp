@@ -383,4 +383,25 @@ auto colorize_diff(const QImage& diff, const diff_lut& lut) -> QImage
     return out;
 }
 
+auto roi_color(std::size_t index) -> QColor
+{
+    // 色环 12 等分固定表(旧版 SelectionColorPalette 同款)
+    static constexpr std::array<std::array<int, 3>, 12> table { {
+        { 255, 0, 0 }, { 255, 165, 0 }, { 255, 255, 0 }, { 127, 255, 0 },
+        { 0, 255, 0 }, { 0, 255, 127 }, { 0, 255, 255 }, { 0, 127, 255 },
+        { 0, 0, 255 }, { 139, 0, 255 }, { 255, 0, 255 }, { 255, 0, 127 },
+    } };
+    if (index < table.size()) {
+        const auto& [r, g, b] = table[index];
+        return { r, g, b };
+    }
+
+    // 黄金角步进 HSV:相邻编号色相错开,不周期性重复
+    constexpr double golden_angle { 137.507764 };
+    const double hue = std::fmod(static_cast<double>(index) * golden_angle, 360.0) / 360.0;
+    const double sat = 0.80 + static_cast<double>(index % 3) * 0.10;
+    const double val = 0.75 + static_cast<double>(index % 5) * 0.05;
+    return QColor::fromHsvF(hue, sat, val);
+}
+
 } // namespace usip::core

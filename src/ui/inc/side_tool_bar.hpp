@@ -28,6 +28,8 @@ private:
     // 工具会话开启:会话排他(其余工具禁用)
     void on_threshold_segment_requested();
     void on_measure_requested();
+    void on_rectangle_draw_requested();
+    void on_ellipse_draw_requested();
     // 会话结束(canvas 广播,携带模式):解禁 + 回落勾选(阻断,不回发事件)
     void on_tool_session_ended(const cbuspp::value<core::view_mode>& value);
     // 模式互斥:对比三模式禁用阈值分割(本地状态,随模式事件推导)

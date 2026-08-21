@@ -21,5 +21,9 @@
         <file>icon/save.svg</file>
         <file>icon/about.svg</file>
         <file>icon/threshold_segmentation.svg</file>
+        <file>icon/zero_is_black.svg</file>
+        <file>icon/none.svg</file>
+        <file>icon/roi.svg</file>
+        <file>icon/annotation.svg</file>
     </qresource>
 </RCC>

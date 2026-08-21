@@ -60,12 +60,16 @@ namespace event {
     CBUSPP_EVENT(pseudocolor_zero_is_black_toggled, "pseudocolor_zero_is_black.toggled", bool);
     CBUSPP_EVENT(pseudocolor_enabled_toggled, "pseudocolor_enabled.toggled", bool);
 
-    CBUSPP_EVENT(mask_color_changed, "mask_color.changed", QColor);
-    CBUSPP_EVENT(mask_opacity_changed, "mask_opacity.changed", double);
-    CBUSPP_EVENT(mask_visible_toggled, "mask_visible.toggled", bool);
-    CBUSPP_EVENT(mask_floor_changed, "mask_floor.changed", double);
-    CBUSPP_EVENT(mask_ceiling_changed, "mask_ceiling.changed", double);
-    CBUSPP_EVENT(mask_range_echo, "mask_range.echo", mask_range);
+CBUSPP_EVENT(mask_color_changed, "mask_color.changed", QColor);
+CBUSPP_EVENT(mask_opacity_changed, "mask_opacity.changed", double);
+CBUSPP_EVENT(mask_visible_toggled, "mask_visible.toggled", bool);
+CBUSPP_EVENT(mask_floor_changed, "mask_floor.changed", double);
+CBUSPP_EVENT(mask_ceiling_changed, "mask_ceiling.changed", double);
+CBUSPP_EVENT(mask_range_echo, "mask_range.echo", mask_range);
+
+// L4/L5 层可见开关(五模式皆受控;非 single 模式本身只渲染两页公有项)
+CBUSPP_EVENT(roi_visible_toggled, "roi_visible.toggled", bool);
+CBUSPP_EVENT(annotation_visible_toggled, "annotation_visible.toggled", bool);
 
     CBUSPP_EVENT(measure_line_width_changed, "measure_line_width.changed", int);
     CBUSPP_EVENT(measure_line_color_changed, "measure_line_color.changed", QColor);
@@ -75,6 +79,8 @@ namespace event {
     CBUSPP_EVENT(step_y_changed, "step.y.changed", double);
     // 清除主、副两页的全部标注数据(含因不一致未渲染的;菜单 Clear Measurements)
     CBUSPP_EVENT(measurements_clear_requested, "measurements.clear_requested", void);
+    // 清除主、副两页的全部选区数据(菜单 Clear Constituency)
+    CBUSPP_EVENT(rois_clear_requested, "rois.clear_requested", void);
 
     CBUSPP_EVENT(error_occurred, "error.occurred", common::error&);
 }

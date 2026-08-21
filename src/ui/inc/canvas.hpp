@@ -31,10 +31,12 @@
 #include "annotation_tool.hpp"
 #include "draw.hpp"
 #include "event.hpp"
+#include "roi_tool.hpp"
 #include "threshold_tool.hpp"
 #include "ui_protocol.hpp"
 
 class QSlider;
+class QTimer;
 
 namespace usip::ui {
 
@@ -65,6 +67,7 @@ protected:
 
     void paintEvent(QPaintEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
@@ -84,6 +87,9 @@ private:
     void on_pseudocolor_zero_is_black_toggled(const cbuspp::value<bool>& value);
     // L3 mask(仅 single 显示)
     void on_mask_visible_toggled(const cbuspp::value<bool>& value);
+    // L4/L5 可见开关(五模式皆受控;开关只管持久层,L6 会话预览不受影响)
+    void on_roi_visible_toggled(const cbuspp::value<bool>& value);
+    void on_annotation_visible_toggled(const cbuspp::value<bool>& value);
     void on_mask_color_changed(const cbuspp::value<QColor>& value);
     void on_mask_opacity_changed(const cbuspp::value<double>& value);
     void on_mask_floor_changed(const cbuspp::value<double>& value);
@@ -94,6 +100,11 @@ private:
     void on_tool_result_canceled();
     // 标注工具(measure 按钮触发;不消费像素,exec 只带 step)
     void on_measure_requested();
+    // 框选工具(rectangle/ellipse 按钮触发;几何工具,五模式皆合法)
+    void on_rectangle_draw_requested();
+    void on_ellipse_draw_requested();
+    // 框选会话公共入口:页校验 → 会话排他 → exec(形状) → 抢占键盘焦点
+    void begin_roi_session(roi_shape shape);
     // L5 标注参数(线宽/线色改即时重绘)
     void on_measure_line_width_changed(const cbuspp::value<int>& value);
     void on_measure_line_color_changed(const cbuspp::value<QColor>& value);
@@ -103,6 +114,8 @@ private:
     void apply_step_change(bool x_axis, double value);
     // 清除主、副两页全部标注数据(含未渲染的)
     void on_measurements_clear_requested();
+    // 清除主、副两页全部选区数据(Clear Constituency)
+    void on_rois_clear_requested();
 
     // doc_ → page_(active_page)与 compare_page_(compare_to);无则置空
     void resolve_pages();
@@ -119,13 +132,25 @@ private:
     void cancel_threshold_session();
     // 结束标注会话(同上;标注无层缓存,直接 update)
     void cancel_annotation_session();
-    // L6:工具临时掩膜叠加(index 对应 preview() 序号;orient 取该半区页面)
+    // 结束框选会话(同上;矢量直绘,无层缓存)
+    void cancel_roi_session();
+    // L4:工具临时掩膜叠加(index 对应 preview() 序号;orient 取该半区页面)
     void draw_temp_mask(QPainter& painter, std::size_t index, const core::page& subject,
         QImage& cache);
     // L6:标注工具临时预览(已落 + 拖拽中;矢量直绘,无缓存)
     void draw_temp_annotations(QPainter& painter);
+    // L6:框选工具临时预览(累积路径 + 拖拽草稿;矢量直绘,无缓存)
+    void draw_temp_rois(QPainter& painter);
+    // 蚂蚁线是否在动(任一可见页有选区,或框选会话进行中)
+    [[nodiscard]] auto ants_animated() const -> bool;
     // 屏幕 → 图像像素(标注手势;origin:split 右半 = seam,其余 0);端点钳制在图像范围内
     [[nodiscard]] auto image_pos(const QPointF& screen, double origin) const -> QPointF;
+    // 图像坐标钳制到图像范围(鼠标可在界外,坐标钉在边界内;框选正方形约束后复钳)
+    [[nodiscard]] auto clamped_image(QPointF p) const -> QPointF;
+    // Shift 按下时把框选角点约束为正方形包围盒(相对锚点取 max 边;越界回钳,
+    // 贴边被截断 —— 内切椭圆即正圆)
+    [[nodiscard]] auto squared_end(const QPointF& end, Qt::KeyboardModifiers mods) const
+        -> QPointF;
     // Shift 按下时把线末端吸附到水平/垂直主轴(相对草稿起点)
     [[nodiscard]] auto aligned_end(const QPointF& end, Qt::KeyboardModifiers mods) const
         -> QPointF;
@@ -149,14 +174,24 @@ private:
     QImage l1_img_ { }, l1c_img_ { }; // L1:主/副底图
     QImage l2_img_ { }; // L2:运算层合成图(highlight/difference)
     QImage l3_img_ { }; // L3:mask 着色
-    QImage l4_img_ { }, l5_img_ { }; // 预留(ROI / 标注)
+    QImage l5_img_ { }; // L5:标注(draw 模板签名占位;矢量直绘不落缓存)
     QImage l6_img_ { }, l6c_img_ { }; // L6:工具临时掩膜(主/副侧)
 
     threshold_tool threshold_tool_ { }; // 阈值分割(canvas 编排,工具不持总线)
     annotation_tool annotation_tool_ { }; // 标注(同上)
+    roi_tool roi_tool_ { }; // 矩形框选(同上)
 
     bool annot_dragging_ { false }; // 标注手势进行中(左键按住)
     double annot_origin_ { 0.0 }; // 手势所在半区的视口 origin(split 右半 = seam)
+
+    bool roi_dragging_ { false }; // 框选手势进行中(左键按住)
+    double roi_origin_ { 0.0 }; // 手势所在半区的视口 origin(split 右半 = seam)
+    QPointF roi_anchor_ { }; // 手势锚点(起笔图像坐标;正方形约束的参考)
+    bool roi_right_armed_ { false }; // 会话期右键待裁决(位移超阈值转平移,否则撤销)
+    QPointF roi_right_press_ { }; // 右键按下位置(位移判别基准)
+
+    QTimer* ants_timer_ { nullptr }; // 蚂蚁线动画(100ms 推进相位)
+    int ants_offset_ { 0 }; // 蚂蚁线相位(模 ants_offset_cycle)
 
     std::weak_ptr<core::document> doc_ { }; // 激活文档(非拥有,实体在 service)
     std::weak_ptr<core::page> page_ { }; // 激活页(非拥有)

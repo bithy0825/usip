@@ -6,6 +6,7 @@
 #include <string_view>
 #include <utility>
 
+#include <QColor>
 #include <QImage>
 
 namespace usip::core {
@@ -94,5 +95,12 @@ struct diff_lut {
 // Format_Grayscale16(值域 0..510);超出 510 的脏值被 clamp 到表尾。
 // 非 Grayscale16(含 8 位灰度与彩色)返回空 QImage 并告警
 [[nodiscard]] auto colorize_diff(const QImage& diff, const diff_lut& lut) -> QImage;
+
+// ─── ROI 选区颜色:编号 → 颜色 ─────────────────────────────────────────────
+// 选区在 page.rois vector 中的编号 → 渲染色(L4 蚂蚁线、L6 临时层与 infodock
+// 选区列表共用一处,保证同编号同色)。前 12 项固定查表(色环 12 等分,
+// 旧版同款);超出后黄金角 HSV 生成(hue 步进 137.507764°,饱和度/明度按
+// 编号取模抖动),相邻编号保持可分辨
+[[nodiscard]] auto roi_color(std::size_t index) -> QColor;
 
 }

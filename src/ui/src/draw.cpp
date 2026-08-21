@@ -7,7 +7,9 @@
 
 #include <QFontMetrics>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPen>
+#include <QPolygonF>
 #include <QTransform>
 
 #include <algorithm>
@@ -227,6 +229,46 @@ namespace {
             || (a.line.first == b.line.second && a.line.second == b.line.first);
     }
 
+    // 完全相同的选区:路径逐点多边形精确相等(apply 双写同值拷贝,精确比较即可)
+    [[nodiscard]] auto same_roi(const core::roi& a, const core::roi& b) -> bool
+    {
+        if (a.path.size() != b.path.size())
+            return false;
+        for (std::size_t i = 0; i < a.path.size(); ++i) {
+            const auto& pa = a.path[i];
+            const auto& pb = b.path[i];
+            if (pa.size() != pb.size())
+                return false;
+            for (std::size_t j = 0; j < pa.size(); ++j)
+                if (!(pa[j] == pb[j]))
+                    return false;
+        }
+        return true;
+    }
+
+    // 蚂蚁线参数:2px 笔宽,{4,4} 虚线(单位 = 线宽 → 屏幕 8px 实/8px 空);
+    // offset 周期 ants_offset_cycle 见 draw.hpp(画布定时器共用)
+    constexpr qreal roi_pen_width { 2.0 };
+
+    // 图像坐标 PathsD → 屏幕 QPainterPath(t = canvas 预设的图像→屏幕变换);
+    // 奇偶填充(Clipper2 输出孔洞与外圈方向相反,两种规则皆正确)
+    [[nodiscard]] auto mapped_roi_path(const Clipper2Lib::PathsD& paths, const QTransform& t)
+        -> QPainterPath
+    {
+        QPainterPath pp;
+        for (const auto& path : paths) {
+            if (path.empty())
+                continue;
+            QPolygonF poly;
+            poly.reserve(static_cast<qsizetype>(path.size()));
+            for (const auto& pt : path)
+                poly.append(t.map(QPointF { pt.x, pt.y }));
+            pp.addPolygon(poly);
+            pp.closeSubpath();
+        }
+        return pp;
+    }
+
 } // namespace
 
 // ─── 层绘制:cache 为空才重建该层内容 ─────────────────────────────────────────
@@ -259,7 +301,9 @@ void draw(QPainter& painter, const core::page& subject,
         if (!cache.isNull())
             painter.drawImage(0, 0, cache);
     } else if constexpr (L == layer::l5) {
-        // 标注:非 single 仅画主副完全相同的部分(命中即止,O(MN))
+        // 标注:可见开关整层控制;非 single 仅画主副完全相同的部分(命中即止,O(MN))
+        if (!opts.annotation_visible)
+            return;
         if (compare != nullptr && opts.mode != core::view_mode::single) {
             std::vector<core::annotation> same;
             same.reserve(subject.annotations.size());
@@ -378,6 +422,71 @@ void draw_annotations(QPainter& painter, std::span<const core::annotation> annot
             static_cast<int>((p1.y() + p2.y()) / 2.0) };
         painter.setPen(line_color);
         painter.drawText(mid.x() - fm.horizontalAdvance(text) / 2, mid.y() - 10, text);
+    }
+    painter.restore();
+}
+
+// ─── ROI 渲染(L4 持久层与画布临时层共用;屏幕空间直绘)──────────────────────
+
+void draw_rois(QPainter& painter, std::span<const core::roi> rois,
+    const std::vector<core::roi>* compare_rois, const options& opts, int ants_offset)
+{
+    if (rois.empty() || !opts.roi_visible)
+        return;
+
+    const QTransform image_to_screen = painter.transform(); // canvas 预设的图像→屏幕
+    painter.save();
+    painter.resetTransform(); // 之后全部屏幕坐标:线宽/虚线尺寸恒定
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    for (std::size_t i = 0; i < rois.size(); ++i) {
+        // 非 single:仅画主副两页完全相同的选区,独有项不显示
+        if (compare_rois != nullptr
+            && std::none_of(compare_rois->begin(), compare_rois->end(),
+                [&r = rois[i]](const core::roi& c) { return same_roi(c, r); }))
+            continue;
+
+        const QPainterPath pp = mapped_roi_path(rois[i].path, image_to_screen);
+        if (pp.isEmpty())
+            continue;
+
+        // 蚂蚁线:颜色按 vector 编号;空段 = 不绘制(无底描边)
+        QPen pen { core::roi_color(i), roi_pen_width, Qt::PenStyle::CustomDashLine };
+        pen.setDashPattern({ 4.0, 4.0 }); // 单位 = 线宽 → 屏幕 8px 实/8px 空
+        pen.setDashOffset(static_cast<qreal>(ants_offset));
+        painter.setPen(pen);
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(pp);
+    }
+    painter.restore();
+}
+
+void draw_session_rois(QPainter& painter, const Clipper2Lib::PathsD& paths,
+    roi_shape shape, const std::optional<QRectF>& draft, const QColor& color)
+{
+    if (paths.empty() && !draft)
+        return;
+
+    const QTransform image_to_screen = painter.transform();
+    painter.save();
+    painter.resetTransform();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    // 边框与填充同色;填充半透明,不遮图像数据
+    QColor fill { color };
+    fill.setAlpha(64);
+    const QPen pen { color, roi_pen_width };
+
+    painter.setPen(pen);
+    painter.setBrush(fill);
+    if (!paths.empty())
+        painter.drawPath(mapped_roi_path(paths, image_to_screen));
+    if (draft) { // 草稿:矩形画包围盒本身,椭圆画内切椭圆(屏幕域,边缘平滑)
+        const QRectF r = image_to_screen.mapRect(*draft);
+        if (shape == roi_shape::ellipse)
+            painter.drawEllipse(r);
+        else
+            painter.drawRect(r);
     }
     painter.restore();
 }

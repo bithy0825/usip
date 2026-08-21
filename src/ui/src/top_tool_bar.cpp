@@ -58,10 +58,12 @@ void top_tool_bar::setup_ui()
     addAction(menu_bar_.save_action());
     addSeparator();
 
-    // ── 视图开关(共享 menu_bar 的 action) ──────────────────────────────
+    // ── 视图开关(共享 menu_bar 的 action;左→右:伪彩、0为黑、mask、ROI、标注)──
     addAction(menu_bar_.pseudocolor_action());
-    addAction(menu_bar_.mask_action());
     addAction(menu_bar_.zero_is_black_action());
+    addAction(menu_bar_.mask_action());
+    addAction(menu_bar_.roi_action());
+    addAction(menu_bar_.annotation_action());
     addSeparator();
 
     // ── 弹簧 ───────────────────────────────────────────────────────────

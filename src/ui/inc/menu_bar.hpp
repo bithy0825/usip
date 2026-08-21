@@ -29,6 +29,8 @@ public:
     [[nodiscard]] QAction* pseudocolor_action() const noexcept { return pseudocolor_; }
     [[nodiscard]] QAction* mask_action() const noexcept { return mask_; }
     [[nodiscard]] QAction* zero_is_black_action() const noexcept { return zero_is_black_; }
+    [[nodiscard]] QAction* roi_action() const noexcept { return roi_; }
+    [[nodiscard]] QAction* annotation_action() const noexcept { return annotation_; }
     [[nodiscard]] QAction* exit_action() const noexcept { return exit_; }
     [[nodiscard]] QAction* export_action() const noexcept { return export_; }
     [[nodiscard]] QAction* save_as_action() const noexcept { return save_as_; }
@@ -61,6 +63,8 @@ private:
     QAction* pseudocolor_ { nullptr };
     QAction* mask_ { nullptr };
     QAction* zero_is_black_ { nullptr };
+    QAction* roi_ { nullptr };
+    QAction* annotation_ { nullptr };
     QAction* clear_constituency_ { nullptr };
     QAction* clear_measurements_ { nullptr };
 

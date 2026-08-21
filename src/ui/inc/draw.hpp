@@ -13,7 +13,8 @@
 //              slider 的"贴合"不在此层:缝是视图态,由 canvas 对两份 L1
 //              内容 clip 合成(拖动零重建)
 //   L3 mask层  阈值蒙版着色 —— 仅 single(非 single 模式永不显示)
-//   L4 ROI 层 / L5 标注层(非 single 仅画公有项)/ L6 临时层(创建手势预览)
+//   L4 ROI 层 / L5 标注层(均受可见开关控制;非 single 仅画两页公有项)/
+//   L6 临时层(创建手势预览)
 //
 // 一个模板方法特化六层:draw<layer::l1>(painter, subject, compare, options,
 // cache) —— compare 仅 L2 使用(可空)。canvas(状态与事件的唯一管理者)持有
@@ -27,11 +28,15 @@
 
 #include <QColor>
 #include <QImage>
+#include <QRectF>
 
+#include <optional>
 #include <span>
+#include <vector>
 
 #include "colormap.hpp"
 #include "document.hpp"
+#include "roi_tool.hpp" // roi_shape(临时层草稿形状)
 #include "view_mode.hpp"
 
 class QPainter;
@@ -49,8 +54,10 @@ struct options {
     bool mask_enabled { false };
     QColor mask_color { "#FF0000" };
     double mask_opacity { 0.5 };
-    // L4:ROI(暂不实现)
+    // L4:ROI
+    bool roi_visible { true };
     // L5:标注
+    bool annotation_visible { true };
     int line_width { 2 };
     QColor line_color { "#00FF00" };
     // L6:临时(暂不实现)
@@ -81,5 +88,24 @@ void draw(QPainter&, const core::page& subject, const core::page* compare,
 // ghost=true 整体降透明度(拖拽中的草稿)
 void draw_annotations(QPainter& painter, std::span<const core::annotation> annotations,
     const options& opts, bool ghost = false);
+
+// ROI 持久层渲染(L4,画布侧直绘,不用层缓存):蚂蚁线 = 2px 虚线边框,
+// 颜色按 roi 在 vector 中的编号经 core::roi_color 取;空段不绘制(无底描
+// 边),ants_offset 为动画相位(画布蚂蚁线定时器推进,模 ants_offset_cycle)。
+// opts.roi_visible = false 时整层不画(五模式皆受控)。compare_rois 非 null
+// (非 single 模式)时仅画两页完全相同的选区(逐点精确比较;apply 双写
+// 同值拷贝保证公有项成立),独有项不显示。经 painter 现有变换映射到屏幕
+// 坐标后直绘,尺寸屏幕恒定
+void draw_rois(QPainter& painter, std::span<const core::roi> rois,
+    const std::vector<core::roi>* compare_rois, const options& opts, int ants_offset);
+
+// 蚂蚁线相位周期(= 虚线模式 {4,4} 的一整个实+空段;画布定时器按此取模)
+inline constexpr int ants_offset_cycle { 8 };
+
+// ROI 临时层渲染(L6,与持久层同坐标约定):会话累积路径 + 拖拽草稿
+// (矩形画包围盒,椭圆画内切椭圆);实线 2px 边框 + 同色半透明填充
+// (颜色 = 落盘后起始编号色,由调用方传入)
+void draw_session_rois(QPainter& painter, const Clipper2Lib::PathsD& paths,
+    roi_shape shape, const std::optional<QRectF>& draft, const QColor& color);
 
 }

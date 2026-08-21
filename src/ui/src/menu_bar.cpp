@@ -47,13 +47,19 @@ void menu_bar::setup_ui()
     pseudocolor_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_S));
     pseudocolor_->setCheckable(true);
     pseudocolor_->setChecked(false);
+    zero_is_black_ = view_menu->addAction(reg.icon("zero_is_black").value_or(QIcon { }), tr("&Zero is Black"));
+    zero_is_black_->setCheckable(true);
+    zero_is_black_->setChecked(core::config::global()->get<bool>("pseudocolor.zero_is_black"));
     mask_ = view_menu->addAction(reg.icon("mask").value_or(QIcon { }), tr("&Mask"));
     mask_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_M));
     mask_->setCheckable(true);
     mask_->setChecked(false);
-    zero_is_black_ = view_menu->addAction(reg.icon("zero_is_black").value_or(QIcon { }), tr("&Zero is Black"));
-    zero_is_black_->setCheckable(true);
-    zero_is_black_->setChecked(core::config::global()->get<bool>("pseudocolor.zero_is_black"));
+    roi_ = view_menu->addAction(reg.icon("roi").value_or(QIcon { }), tr("&ROI"));
+    roi_->setCheckable(true);
+    roi_->setChecked(true); // L4 默认可见(开关控制渲染,五模式皆受控)
+    annotation_ = view_menu->addAction(reg.icon("annotation").value_or(QIcon { }), tr("&Annotation"));
+    annotation_->setCheckable(true);
+    annotation_->setChecked(true); // L5 默认可见(同上)
     view_menu->addSeparator();
     clear_constituency_ = view_menu->addAction(reg.icon("clear_constituency").value_or(QIcon { }), tr("Clear &Constituency"));
     clear_measurements_ = view_menu->addAction(reg.icon("clear_measurement").value_or(QIcon { }), tr("Clear &Measurements"));
@@ -83,8 +89,20 @@ void menu_bar::setup_connections()
     connect(mask_, &QAction::triggered, this, [this](bool checked) {
         bus_.post<core::event::mask_visible_toggled>(cbuspp::value<bool> { checked }).sync();
     });
+    // L4/L5 可见开关(菜单与 top_tool_bar 共享同一 action;五模式皆受控)
+    connect(roi_, &QAction::triggered, this, [this](bool checked) {
+        bus_.post<core::event::roi_visible_toggled>(cbuspp::value<bool> { checked }).sync();
+    });
+    connect(annotation_, &QAction::triggered, this, [this](bool checked) {
+        bus_.post<core::event::annotation_visible_toggled>(
+                cbuspp::value<bool> { checked })
+            .sync();
+    });
     connect(clear_measurements_, &QAction::triggered, this, [this] {
         bus_.post<core::event::measurements_clear_requested>().sync();
+    });
+    connect(clear_constituency_, &QAction::triggered, this, [this] {
+        bus_.post<core::event::rois_clear_requested>().sync();
     });
     connect(zero_is_black_, &QAction::triggered, this, [this](bool checked) {
         bus_.post<core::event::pseudocolor_zero_is_black_toggled>(
