@@ -40,6 +40,8 @@ private:
     void setup_connections();
 
     void on_document_changed(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    // 文档关闭:就地清空(有剩余文档则随随后的 document_switch 重喂)
+    void on_document_closed(const cbuspp::value<cuuidpp::uuid>& value);
 
     // 纵轴唯一事实源是 y_axis_(鼠标交互也直接改轴),按钮/复位/模式在其上操作
     [[nodiscard]] bool percent_mode() const; // 当前 Count/Percent

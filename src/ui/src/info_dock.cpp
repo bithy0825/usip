@@ -95,6 +95,7 @@ void info_dock::setup_subscriptions()
 {
     bus_.on<core::event::document_ready>().call(*this, &info_dock::on_document_ready);
     bus_.on<core::event::document_switch>().call(*this, &info_dock::on_document_switch);
+    bus_.on<core::event::document_closed>().call(*this, &info_dock::on_document_closed);
     bus_.on<core::event::page_rois_changed>().call(*this, &info_dock::on_page_rois_changed);
     // 工具会话:开启禁用(观察者:订阅原始 request 自推导),结束经 canvas 广播解禁
     bus_.on<core::event::threshold_segment_requested>()
@@ -163,6 +164,27 @@ void info_dock::on_document_switch(const cbuspp::value<std::shared_ptr<core::doc
     if (const auto it = tables_.find(doc->info.id); it != tables_.end())
         stacked_->setCurrentWidget(it->second);
     sync_highlight(); // 页/文档切换:高亮跟随当前表选中(同表同选则幂等)
+}
+
+void info_dock::on_document_closed(const cbuspp::value<cuuidpp::uuid>& value)
+{
+    const bool was_current = [this, &value] {
+        if (const auto doc = doc_.lock())
+            return doc->info.id == *value;
+        return false;
+    }();
+
+    if (const auto it = tables_.find(*value); it != tables_.end()) {
+        auto* table = it->second;
+        stacked_->removeWidget(table);
+        table->deleteLater();
+        tables_.erase(it);
+    }
+    if (was_current) { // 被关即当前:解除跟踪 + 回空白表 + 清除高亮广播
+        doc_.reset();
+        stacked_->setCurrentWidget(empty_);
+        sync_highlight();
+    } // 非当前被关:表已销毁,其余无涉;当前显示不变
 }
 
 void info_dock::on_page_rois_changed(const cbuspp::value<std::shared_ptr<core::page>>& value)

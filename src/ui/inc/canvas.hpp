@@ -80,6 +80,9 @@ private:
     // 文档
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    // 文档关闭:被关即当前 → 清一切状态回空白基态(非当前被关则无操作;
+    // 剩余文档的显示由随后的 document_switch 重建)
+    void on_document_closed(const cbuspp::value<cuuidpp::uuid>& value);
     // 模式与对比页
     void on_view_mode_change_requested(const cbuspp::value<core::view_mode>& value);
     void on_compare_page_selected(const cbuspp::value<int>& value); // 0 起页序

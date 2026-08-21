@@ -83,6 +83,7 @@ void canvas::setup_subscriptions()
 {
     bus_.on<core::event::document_ready>().call(*this, &canvas::on_document_ready);
     bus_.on<core::event::document_switch>().call(*this, &canvas::on_document_switch);
+    bus_.on<core::event::document_closed>().call(*this, &canvas::on_document_closed);
     bus_.on<core::event::view_mode_change_requested>()
         .call(*this, &canvas::on_view_mode_change_requested);
     bus_.on<core::event::compare_page_selected>()
@@ -189,6 +190,37 @@ void canvas::on_document_switch(
     view_dirty_ = true;
     if (options_.mode != core::view_mode::single && compare_page_.expired()
         && !ensure_compare_page()) {
+        options_.mode = core::view_mode::single;
+        slider_->hide();
+        bus_.post<core::event::view_mode_changed>(
+            cbuspp::value<core::view_mode> { core::view_mode::single })
+            .sync();
+    }
+    update();
+}
+
+void canvas::on_document_closed(const cbuspp::value<cuuidpp::uuid>& value)
+{
+    // 非当前文档被关(后台文档):画布无涉;当前文档 weak 可能已被服务端释放,
+    // expired 亦按"被关即当前"处理(重置幂等)
+    if (const auto doc = doc_.lock(); doc && doc->info.id != *value)
+        return;
+
+    cancel_threshold_session();
+    cancel_annotation_session();
+    cancel_roi_session();
+    doc_.reset();
+    resolve_pages(); // doc_ 已空 → page_/compare_page_ 置空
+    l1_img_ = { };
+    l1c_img_ = { };
+    l2_img_ = { };
+    l3_img_ = { };
+    l6_img_ = { };
+    l6c_img_ = { };
+    roi_highlight_.reset(); // 高亮随被关页作废
+    view_ = { }; // 视图态回初始(与刚打开软件一致)
+    view_dirty_ = false; // 无文档可适配
+    if (options_.mode != core::view_mode::single) { // 回 single:无对比方可言
         options_.mode = core::view_mode::single;
         slider_->hide();
         bus_.post<core::event::view_mode_changed>(

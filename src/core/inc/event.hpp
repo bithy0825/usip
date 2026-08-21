@@ -36,6 +36,11 @@ namespace event {
     CBUSPP_EVENT(document_ready, "document.ready", std::shared_ptr<document>);
     CBUSPP_EVENT(document_switch, "document.switch", std::shared_ptr<document>);
     CBUSPP_EVENT(document_switch_requested, "document.switch_requested", cuuidpp::uuid);
+    // 关闭当前文档:requested 携带目标 uuid(main_window 从激活文档解析),服务端
+    // 释放其全部页与文档实体;closed 广播携带被关 uuid,各模块按 uuid 对账清理
+    // 自己的资源,随后若有剩余文档服务端补发 document_switch 切换显示
+    CBUSPP_EVENT(document_close_requested, "document.close_requested", cuuidpp::uuid);
+    CBUSPP_EVENT(document_closed, "document.closed", cuuidpp::uuid);
     CBUSPP_EVENT(page_switch_requested, "page.switch_requested", cuuidpp::uuid);
     CBUSPP_EVENT(page_rois_changed, "page.rois_changed", std::shared_ptr<page>);
 

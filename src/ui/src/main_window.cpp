@@ -75,23 +75,33 @@ void main_window::setup_ui()
     resize(1440, 900); // 默认窗口尺寸(图像分析工作区;用户可再调)
     // 右侧 dock 初始宽度:表格列多,过窄会大面积省略表头与数据
     resizeDocks({ index_dock_, info_dock_, hist_dock_ }, { 560, 560, 560 }, Qt::Horizontal);
+    // 禁掉主窗口默认的右键菜单(显隐 toolbar/dock;不需要)
+    setContextMenuPolicy(Qt::NoContextMenu);
 }
 
 void main_window::setup_subscriptions()
 {
     bus_.on<core::event::document_ready>().call(*this, &main_window::on_document_ready);
     bus_.on<core::event::document_switch>().call(*this, &main_window::on_document_switch);
+    bus_.on<core::event::document_closed>().call(*this, &main_window::on_document_closed);
 }
 
 void main_window::setup_connections()
 {
-    // 文件动作(save/export 须触碰窗口/画布/激活文档,归本类;about 同理)
+    // 文件动作(save/export/close 须触碰窗口/画布/激活文档,归本类;about 同理)
     connect(menu_bar_->save_action(), &QAction::triggered, this,
         [this] { on_save_screenshot(); });
     connect(menu_bar_->save_as_action(), &QAction::triggered, this,
         [this] { on_save_screenshot_as(); });
     connect(menu_bar_->export_action(), &QAction::triggered, this, [this] { on_export(); });
     connect(menu_bar_->about_action(), &QAction::triggered, this, [this] { on_about(); });
+    // Close:关闭激活文档(服务端释放全部资源并广播;无文档则无操作)
+    connect(menu_bar_->close_action(), &QAction::triggered, this, [this] {
+        if (const auto doc = doc_.lock())
+            bus_.post<core::event::document_close_requested>(
+                    cbuspp::value<cuuidpp::uuid> { doc->info.id })
+                .sync();
+    });
 }
 
 void main_window::on_document_ready(
@@ -106,6 +116,12 @@ void main_window::on_document_switch(
 {
     if (*value) // 空载荷(如重复打开的提醒)不改跟踪
         doc_ = *value;
+}
+
+void main_window::on_document_closed(const cbuspp::value<cuuidpp::uuid>& value)
+{
+    if (const auto doc = doc_.lock(); doc && doc->info.id == *value)
+        doc_.reset(); // 被关即当前:解除跟踪;剩余文档经 document_switch 重建
 }
 
 auto main_window::screenshot_default_base() const -> QString

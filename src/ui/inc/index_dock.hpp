@@ -36,6 +36,8 @@ private:
 
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    // 文档关闭:移除下拉项与页表(含 page_items_ 对账);无剩余回空白基态
+    void on_document_closed(const cbuspp::value<cuuidpp::uuid>& value);
     void on_page_rois_changed(const cbuspp::value<std::shared_ptr<core::page>>& value);
     // 工具会话开启(任一):禁用(doc/step/页切换全在其中);结束(canvas 广播):解禁
     void on_tool_session_started();

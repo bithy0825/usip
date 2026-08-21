@@ -40,6 +40,8 @@ private:
     // 激活文档跟踪(save 默认名 / export 数据源)
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    // 关闭当前文档(Close 菜单):请求服务端释放;被关即当前 → 解除跟踪
+    void on_document_closed(const cbuspp::value<cuuidpp::uuid>& value);
     // Save:主窗口截图直存默认路径(首个未占用名);Save As:同图弹框选径
     void on_save_screenshot();
     void on_save_screenshot_as();

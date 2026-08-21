@@ -47,6 +47,8 @@ private:
 
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    // 文档关闭:销毁其选区表;被关即当前 → 回空白表并清除高亮
+    void on_document_closed(const cbuspp::value<cuuidpp::uuid>& value);
     // 页选区变更(复用既有广播收口):空 → 移除该页全部行;非空 → 行数差额即
     // 尾部新增,按序补行(行 ↔ rois 尾项一一对应:删除由本 dock 先行同步,
     // 到达时恒一致,天然幂等)

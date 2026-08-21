@@ -63,6 +63,8 @@ private:
 
     void on_document_ready(const cbuspp::value<std::shared_ptr<core::document>>& value);
     void on_document_switch(const cbuspp::value<std::shared_ptr<core::document>>& value);
+    // 文档关闭:对比页输入复位(无文档基态;有剩余则随 document_switch 重同步)
+    void on_document_closed(const cbuspp::value<cuuidpp::uuid>& value);
     void on_view_mode_changed(const cbuspp::value<core::view_mode>& value);
     // 对比页外部变更(对话框路径经 canvas 广播):回显输入框(阻断,不回发)
     void on_compare_page_selected(const cbuspp::value<int>& value);

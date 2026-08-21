@@ -130,6 +130,7 @@ void hist_dock::setup_subscriptions()
     // 页切换链路复用 document_switch,翻页自动重喂
     bus_.on<core::event::document_ready>().call(*this, &hist_dock::on_document_changed);
     bus_.on<core::event::document_switch>().call(*this, &hist_dock::on_document_changed);
+    bus_.on<core::event::document_closed>().call(*this, &hist_dock::on_document_closed);
 }
 
 void hist_dock::setup_connections()
@@ -229,6 +230,16 @@ void hist_dock::on_document_changed(const cbuspp::value<std::shared_ptr<core::do
     total_ = std::accumulate(bins.begin(), bins.end(), std::uint64_t { 0 });
     refill_bars();
     reset_view(); // 新页新数据,复位视野
+}
+
+void hist_dock::on_document_closed(const cbuspp::value<cuuidpp::uuid>&)
+{
+    // 就地清空:无剩余文档时不会有后续 switch 重喂(回空白基态);
+    // 有剩余则 document_switch 紧随其后重喂,先清无害
+    bins_ = { };
+    total_ = 0;
+    refill_bars();
+    reset_view();
 }
 
 bool hist_dock::percent_mode() const

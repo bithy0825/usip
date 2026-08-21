@@ -174,6 +174,7 @@ void index_dock::setup_subscriptions()
 {
     bus_.on<core::event::document_ready>().call(*this, &index_dock::on_document_ready);
     bus_.on<core::event::document_switch>().call(*this, &index_dock::on_document_switch);
+    bus_.on<core::event::document_closed>().call(*this, &index_dock::on_document_closed);
     bus_.on<core::event::page_rois_changed>().call(*this, &index_dock::on_page_rois_changed);
     // 工具会话:开启禁用(观察者:订阅原始 request 自推导),结束经 canvas 广播解禁
     bus_.on<core::event::threshold_segment_requested>()
@@ -244,6 +245,33 @@ void index_dock::on_document_switch(const cbuspp::value<std::shared_ptr<core::do
         stacked_->setCurrentWidget(it->second);
     select_page_row(doc->active_page); // 页切换链路回Sync行选择(阻断,不回发)
     sync_step(*doc); // 切文档读入新 step(各文档 step 独立)
+}
+
+void index_dock::on_document_closed(const cbuspp::value<cuuidpp::uuid>& value)
+{
+    // 页表:先按所属表对账剔除 page_items_(键是页 uuid,跨文档无重复),
+    // 再从 stacked_ 摘除销毁
+    if (const auto it = tables_.find(*value); it != tables_.end()) {
+        auto* table = it->second;
+        std::erase_if(page_items_, [table](const auto& kv) {
+            return kv.second && kv.second->tableWidget() == table;
+        });
+        stacked_->removeWidget(table);
+        table->deleteLater();
+        tables_.erase(it);
+    }
+    // 下拉:移除对应项(阻断,程序性移除不发 activated)
+    if (const int index = doc_->findData(QVariant::fromValue(*value)); index >= 0) {
+        const QSignalBlocker blocker { doc_ };
+        doc_->removeItem(index);
+    }
+    // 无剩余文档:回空白基态;有剩余则随随后的 document_switch 同步选择与表格
+    if (doc_->count() == 0) {
+        stacked_->setCurrentWidget(empty_);
+        const QSignalBlocker x { x_step_ }, y { y_step_ };
+        x_step_->setValue(1.0);
+        y_step_->setValue(1.0);
+    }
 }
 
 void index_dock::on_page_rois_changed(const cbuspp::value<std::shared_ptr<core::page>>& value)

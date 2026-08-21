@@ -234,8 +234,41 @@ void document_service::setup_subscriptions()
     bus_.on<core::event::file_selected>().call(*this, &document_service::on_file_selected);
     bus_.on<core::event::document_switch_requested>()
         .call(*this, &document_service::on_document_switch_requested);
+    bus_.on<core::event::document_close_requested>()
+        .call(*this, &document_service::on_document_close_requested);
     bus_.on<core::event::page_switch_requested>()
         .call(*this, &document_service::on_page_switch_requested);
+}
+
+void document_service::on_document_close_requested(const cbuspp::value<cuuidpp::uuid>& value)
+{
+    const auto it = docs_.find(*value);
+    if (it == docs_.end()) [[unlikely]] {
+        common::log_warn("close requested for unknown document: '{}'", value->to_string());
+        return;
+    }
+
+    const auto path = it->second->info.path; // 实体即将销毁,先取日志素材
+    // 页实体归本服务管(alias 指针不拥有,先后无碍,集中清理);再销毁文档本体
+    for (const auto& page_id : it->second->pages | std::views::keys)
+        pages_.erase(page_id);
+    docs_.erase(it);
+    std::erase(open_order_, *value);
+
+    common::log_info("document closed: '{}'", path.string());
+
+    // 先广播清理(订阅方按 uuid 对账自己的资源),再切换显示(若有剩余)
+    bus_.post<core::event::document_closed>(cbuspp::value<cuuidpp::uuid> { *value })
+        .with_trace_id(core::event::trace_id::document_service)
+        .sync();
+
+    if (!open_order_.empty()) { // 剩余文档:显示最近打开的一个
+        const auto next = docs_.find(open_order_.back());
+        bus_.post<core::event::document_switch>(
+                cbuspp::value<std::shared_ptr<core::document>> { next->second })
+            .with_trace_id(core::event::trace_id::document_service)
+            .sync();
+    }
 }
 
 void document_service::on_document_switch_requested(const cbuspp::value<cuuidpp::uuid>& value)
@@ -382,6 +415,7 @@ void document_service::on_file_selected(const cbuspp::value<std::filesystem::pat
 
     const auto doc_id = doc->info.id;
     const auto& stored = docs_.emplace(doc_id, std::move(doc)).first->second; // owning ptr
+    open_order_.push_back(doc_id); // 打开顺序:关闭当前文档后据此选剩余项
 
     common::log_info("document ready: '{}' ({} pages)", path.string(),
         stored->info.pages.size());

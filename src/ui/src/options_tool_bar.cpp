@@ -156,6 +156,7 @@ void options_tool_bar::setup_subscriptions()
     bus_.on<core::event::measure_requested>().call(this, &options_tool_bar::on_measure_requested);
     bus_.on<core::event::document_ready>().call(this, &options_tool_bar::on_document_ready);
     bus_.on<core::event::document_switch>().call(this, &options_tool_bar::on_document_switch);
+    bus_.on<core::event::document_closed>().call(this, &options_tool_bar::on_document_closed);
     bus_.on<core::event::view_mode_changed>().call(this, &options_tool_bar::on_view_mode_changed);
     bus_.on<core::event::compare_page_selected>()
         .call(this, &options_tool_bar::on_compare_page_selected);
@@ -238,6 +239,16 @@ void options_tool_bar::on_document_switch(
     const cbuspp::value<std::shared_ptr<core::document>>& value)
 {
     sync_page_control(*value); // 页切换也经 document_switch 广播,回显跟随激活页
+}
+
+void options_tool_bar::on_document_closed(const cbuspp::value<cuuidpp::uuid>&)
+{
+    // 对比页输入复位到无文档基态;有剩余文档则随紧随的 document_switch 重同步
+    // (single 模式禁用经 canvas 广播的 view_mode_changed 落位)
+    const QSignalBlocker blocker(page_control_);
+    page_control_->setMaximum(0);
+    page_control_->setValue(0);
+    page_control_->setEnabled(false);
 }
 
 // Compared Page:范围 = 0..页数-1;回显激活页已设置的对比页(信号阻断,不回发事件)

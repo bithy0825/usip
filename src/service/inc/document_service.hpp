@@ -4,6 +4,8 @@
 
 #include <filesystem>
 #include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "document.hpp"
 #include "executor.hpp"
@@ -30,6 +32,7 @@ private:
     void setup_subscriptions();
     void on_file_selected(const cbuspp::value<std::filesystem::path>& value);
     void on_document_switch_requested(const cbuspp::value<cuuidpp::uuid>& value);
+    void on_document_close_requested(const cbuspp::value<cuuidpp::uuid>& value);
     void on_page_switch_requested(const cbuspp::value<cuuidpp::uuid>& value);
 
     cbuspp::bus<common::executor>& bus_;
@@ -39,6 +42,8 @@ private:
     // 控制块常驻 docs_,weak 语义才成立(空删除器别名会随事件结束失效)
     std::unordered_map<cuuidpp::uuid, std::shared_ptr<core::document>> docs_ { };
     std::unordered_map<cuuidpp::uuid, core::page> pages_ { };
+    // 打开顺序(仅 uuid):关闭当前文档后据此选最近打开的剩余项显示
+    std::vector<cuuidpp::uuid> open_order_ { };
 };
 
 }
